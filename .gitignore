@@ -98,5 +98,11 @@ log/
 # x-flow skill无需入库
 .codebuddy
 
+# x-flow 运行目录
+docs/x-flow/
+
+# Docker volumes
+redis-data/
+
 # 外部注入的配置 与项目无关
 .agent
