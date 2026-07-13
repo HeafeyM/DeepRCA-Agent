@@ -1,0 +1,72 @@
+"""配置系统。
+
+@changelog
+<table>
+<tr><th>版本</th><th>变更说明</th><th>关联</th></tr>
+<tr><td>0.1.0</td><td>初始创建：Settings (pydantic-settings)</td><td>REQ: 20260713-总体架构, TECH: 04b §3.2</td></tr>
+</table>
+@author DeepRCA Team
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """应用配置，从 .env 文件读取。
+
+    使用标准 Redis 和 Kafka（非公司内部服务）。
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # Application
+    app_env: str = Field(default="development", description="运行环境")
+    app_host: str = Field(default="0.0.0.0", description="监听地址")
+    app_port: int = Field(default=8000, description="监听端口")
+    log_level: str = Field(default="INFO", description="日志级别")
+
+    # LLM
+    llm_api_base: str = Field(default="http://localhost:11434/v1", description="LLM API 地址")
+    llm_api_key: str = Field(default="", description="LLM API Key")
+    llm_model: str = Field(default="gpt-4o", description="LLM 模型名")
+    llm_max_tokens: int = Field(default=4096, description="LLM 最大 token 数")
+    llm_timeout: int = Field(default=30, description="LLM 调用超时（秒）")
+
+    # Redis (standard)
+    redis_host: str = Field(default="localhost", description="Redis 地址")
+    redis_port: int = Field(default=6379, description="Redis 端口")
+    redis_db: int = Field(default=0, description="Redis 数据库")
+    redis_password: str = Field(default="", description="Redis 密码")
+
+    # Kafka (standard)
+    kafka_bootstrap_servers: str = Field(default="localhost:9092", description="Kafka 地址")
+    kafka_feedback_topic: str = Field(default="deeprca-feedback", description="反馈 topic")
+    kafka_feedback_delay_ms: int = Field(default=1800000, description="延迟消息毫秒数（30分钟）")
+
+    # Analysis
+    analysis_timeout: int = Field(default=60, description="端到端分析超时（秒）")
+    tool_call_timeout: int = Field(default=10, description="单次工具调用超时（秒）")
+    max_concurrent_tasks: int = Field(default=10, description="最大并发任务数")
+    satisfaction_push_delay: int = Field(default=1800, description="满意度推送延迟（秒）")
+
+    # Mock Environment
+    mock_env_enabled: bool = Field(default=True, description="是否启用 Mock 环境")
+    mock_k8s_api: str = Field(default="http://localhost:8001", description="Mock K8s API")
+    mock_monitor_api: str = Field(default="http://localhost:8002", description="Mock 监控 API")
+    mock_log_api: str = Field(default="http://localhost:8003", description="Mock 日志 API")
+    mock_change_api: str = Field(default="http://localhost:8004", description="Mock 变更 API")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """获取全局 Settings 单例。"""
+    return Settings()

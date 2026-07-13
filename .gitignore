@@ -98,5 +98,17 @@ log/
 # x-flow skill无需入库
 .codebuddy
 
+# x-flow 运行目录
+docs/x-flow/
+
+# Docker volumes
+redis-data/
+
 # 外部注入的配置 与项目无关
 .agent
+
+# 临时暂存目录
+.tmp_m2_m6/
+
+# 用户上传文件
+chat_uploads/
