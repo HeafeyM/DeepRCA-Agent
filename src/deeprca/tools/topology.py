@@ -20,12 +20,14 @@ from deeprca.config import get_settings
 async def query_topology(
     service_name: str,
     depth: int = 2,
+    direction: str = "both",
 ) -> dict:
     """查询服务拓扑关系。
 
     Args:
         service_name: 服务名称
         depth: 拓扑深度，默认 2 层
+        direction: 方向 (upstream/downstream/both)
 
     Returns:
         包含上下游依赖关系的字典
@@ -34,6 +36,7 @@ async def query_topology(
     params: dict = {
         "service_name": service_name,
         "depth": depth,
+        "direction": direction,
     }
 
     try:
@@ -44,10 +47,12 @@ async def query_topology(
             )
             resp.raise_for_status()
             data = resp.json()
+            upstream = data.get("upstream", []) if direction in ("upstream", "both") else []
+            downstream = data.get("downstream", []) if direction in ("downstream", "both") else []
             return {
                 "service": service_name,
-                "upstream": data.get("upstream", []),
-                "downstream": data.get("downstream", []),
+                "upstream": upstream,
+                "downstream": downstream,
             }
     except Exception as e:
         return {"service": service_name, "upstream": [], "downstream": [], "error": str(e)}

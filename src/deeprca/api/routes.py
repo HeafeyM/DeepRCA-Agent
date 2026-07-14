@@ -65,6 +65,15 @@ def create_router() -> APIRouter:
             "labels": {"cluster": "prod-cluster", "env": "production", "app": "order"}
         }
         """
+        # PRD-02 §7: 告警格式验证
+        required_fields = ["alert_id", "service_name", "alert_type", "severity", "timestamp"]
+        missing = [f for f in required_fields if not alert.get(f)]
+        if missing:
+            return JSONResponse(
+                status_code=400,
+                content={"message": f"必需字段缺失: {', '.join(missing)}", "missing_fields": missing},
+            )
+
         # 生成 trace_id
         trace_id = f"trace-{uuid.uuid4().hex[:12]}"
 
@@ -105,12 +114,16 @@ def create_router() -> APIRouter:
         # 启动后台任务
         asyncio.create_task(_run_analysis())
 
+        # PRD-02 §6.1: 返回 websocket_url
+        settings = get_settings()
+        ws_url = f"ws://{settings.app_host}:{settings.app_port}/api/v1/analyze/{trace_id}/stream"
+
         return JSONResponse(
             status_code=202,
             content={
                 "trace_id": trace_id,
-                "status": "accepted",
-                "message": "Analysis started",
+                "status": "running",
+                "websocket_url": ws_url,
             },
         )
 
@@ -126,9 +139,24 @@ def create_router() -> APIRouter:
                 status_code=404,
                 content={"trace_id": trace_id, "message": "Trace not found"},
             )
+
+        # PRD-02 §6.2: 返回进度信息
+        status = record["status"]
+        progress = {"total_dimensions": 6, "completed": 0, "failed": 0, "pending": 6}
+        elapsed_seconds = 0
+        start_time = record.get("start_time")
+        if start_time:
+            try:
+                start_dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                elapsed_seconds = int((datetime.now(timezone.utc) - start_dt).total_seconds())
+            except (ValueError, TypeError):
+                pass
+
         return {
             "trace_id": trace_id,
-            "status": record["status"],
+            "status": status,
+            "progress": progress,
+            "elapsed_seconds": elapsed_seconds,
             "start_time": record.get("start_time"),
             "completed_at": record.get("completed_at"),
         }

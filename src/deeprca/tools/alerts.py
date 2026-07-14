@@ -19,22 +19,30 @@ from deeprca.config import get_settings
 @tool
 async def query_related_alerts(
     service_name: str,
-    time_window: int = 1800,
+    time_range: str = "7d",
+    alert_type: str = "",
 ) -> dict:
-    """查询关联告警。
+    """查询关联告警和已知问题。
 
     Args:
         service_name: 服务名称
-        time_window: 时间窗口（秒），默认 30 分钟
+        time_range: 时间范围 (1h/6h/24h/7d)
+        alert_type: 告警类型过滤
 
     Returns:
-        包含关联告警列表的字典
+        包含关联告警和已知问题的字典
     """
     settings = get_settings()
+    # 将时间范围转为秒
+    range_map = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800}
+    time_window = range_map.get(time_range, 604800)
+
     params: dict = {
         "service_name": service_name,
         "time_window": time_window,
     }
+    if alert_type:
+        params["alert_type"] = alert_type
 
     try:
         async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
@@ -44,6 +52,12 @@ async def query_related_alerts(
             )
             resp.raise_for_status()
             data = resp.json()
-            return {"service": service_name, "alerts": data.get("alerts", [])}
+            alerts = data.get("alerts", [])
+            known_issues = data.get("known_issues", [])
+            return {
+                "service": service_name,
+                "related_alerts": alerts,
+                "known_issues": known_issues,
+            }
     except Exception as e:
-        return {"service": service_name, "alerts": [], "error": str(e)}
+        return {"service": service_name, "related_alerts": [], "known_issues": [], "error": str(e)}

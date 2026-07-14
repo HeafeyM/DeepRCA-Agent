@@ -74,17 +74,68 @@ class TestIntakeNode:
         assert "time_window_start" in result["alert"]
         assert "time_window_end" in result["alert"]
 
+    def test_intake_time_window_by_type(self):
+        """intake 应按告警类型推导不同时间窗口。"""
+        from deeprca.agents.coordinator import intake_node
+
+        # timeout 类型: before=30m
+        state_timeout = {
+            "alert": {
+                "alert_id": "alt-001",
+                "service_name": "test",
+                "alert_type": "timeout",
+                "timestamp": "2026-07-13T10:00:00+00:00",
+            }
+        }
+        result_t = intake_node(state_timeout)
+        # window_start 应在 09:30 左右
+        assert "09:30" in result_t["alert"]["time_window_start"]
+
+        # resource 类型: before=60m
+        state_resource = {
+            "alert": {
+                "alert_id": "alt-002",
+                "service_name": "test",
+                "alert_type": "resource",
+                "timestamp": "2026-07-13T10:00:00+00:00",
+            }
+        }
+        result_r = intake_node(state_resource)
+        # window_start 应在 09:00 左右
+        assert "09:00" in result_r["alert"]["time_window_start"]
+
+    def test_intake_extracts_related_services(self):
+        """intake 应提取关联服务列表。"""
+        from deeprca.agents.coordinator import intake_node
+
+        state = {
+            "alert": {
+                "alert_id": "alt-001",
+                "service_name": "order-service",
+                "alert_type": "timeout",
+                "timestamp": "2026-07-13T10:00:00+00:00",
+                "description": "order-service 调用 payment-service 超时",
+                "labels": {"app": "order"},
+            }
+        }
+        result = intake_node(state)
+
+        assert "related_services" in result
+        assert "order-service" in result["related_services"]
+        assert "payment-service" in result["related_services"]
+
 
 class TestPlannerNode:
     """planner 节点测试。"""
 
     def test_planner_generates_six_dimensions(self):
-        """planner 应生成 6 个维度的分析任务。"""
+        """planner 应对 timeout 类型生成 6 个维度的分析任务。"""
         from deeprca.agents.coordinator import planner_node
 
         state = {
             "alert": {
                 "service_name": "order-service",
+                "alert_type": "timeout",
                 "time_window_start": "2026-07-13T09:30:00+00:00",
                 "time_window_end": "2026-07-13T10:00:00+00:00",
             }
@@ -100,17 +151,57 @@ class TestPlannerNode:
         assert "errorlog" in dimensions
         assert "problem" in dimensions
 
+    def test_planner_resource_type_four_dimensions(self):
+        """planner 应对 resource 类型生成 4 个维度。"""
+        from deeprca.agents.coordinator import planner_node
+
+        state = {
+            "alert": {
+                "service_name": "test-service",
+                "alert_type": "resource",
+                "time_window_start": "2026-07-13T09:30:00+00:00",
+                "time_window_end": "2026-07-13T10:00:00+00:00",
+            }
+        }
+        result = planner_node(state)
+
+        assert len(result["task_plan"]) == 4
+        dimensions = [t["dimension"] for t in result["task_plan"]]
+        assert "upstream" not in dimensions
+        assert "downstream" not in dimensions
+
     def test_planner_sorts_by_priority(self):
         """planner 应按优先级排序。"""
         from deeprca.agents.coordinator import planner_node
 
         state = {
-            "alert": {"service_name": "test", "time_window_start": "", "time_window_end": ""}
+            "alert": {"service_name": "test", "alert_type": "custom", "time_window_start": "", "time_window_end": ""}
         }
         result = planner_node(state)
 
         priorities = [t["priority"] for t in result["task_plan"]]
         assert priorities == sorted(priorities)
+
+    def test_planner_includes_task_id_and_tools(self):
+        """planner 生成的任务应包含 task_id 和 tools 字段。"""
+        from deeprca.agents.coordinator import planner_node
+
+        state = {
+            "alert": {
+                "alert_id": "alt-001",
+                "service_name": "test",
+                "alert_type": "timeout",
+                "time_window_start": "",
+                "time_window_end": "",
+            }
+        }
+        result = planner_node(state)
+
+        for task in result["task_plan"]:
+            assert "task_id" in task
+            assert "tools" in task
+            assert "name" in task
+            assert "description" in task
 
 
 class TestCollectorNode:
@@ -175,6 +266,51 @@ class TestReporterNode:
         assert report["trace_id"] == "trace-test"
         assert report["root_cause"] == "DB 慢查询"
         assert report["confidence"] == 0.85
+
+    def test_reporter_includes_suggestions(self):
+        """reporter 应生成建议措施。"""
+        from deeprca.agents.coordinator import reporter_node
+
+        state = {
+            "alert": {"alert_id": "alt-001", "service_name": "order-service", "severity": "P1"},
+            "root_cause": {
+                "candidates": [],
+                "best_candidate": {"rank": 1, "root_cause": "DB 主从延迟", "confidence": 0.8, "source": "rule"},
+                "anomalies_detected": [],
+                "rule_matched": False,
+                "llm_used": False,
+            },
+            "collected_evidence": {"top_evidences": []},
+            "sub_agent_results": [],
+            "trace_id": "trace-test",
+            "start_time": "2026-07-13T10:00:00+00:00",
+        }
+        result = reporter_node(state)
+        report = json.loads(result["report"])
+
+        assert "suggestions" in report
+        assert len(report["suggestions"]) > 0
+        assert "satisfaction_url" in report
+        assert "trace-test" in report["satisfaction_url"]
+
+    def test_reporter_degraded_mode(self):
+        """reporter 在降级模式应生成降级建议。"""
+        from deeprca.agents.coordinator import reporter_node
+
+        state = {
+            "alert": {"alert_id": "alt-001", "service_name": "test", "severity": "P1"},
+            "root_cause": {"candidates": [], "best_candidate": None, "anomalies_detected": [], "rule_matched": False, "llm_used": False},
+            "collected_evidence": {"top_evidences": []},
+            "sub_agent_results": [],
+            "trace_id": "trace-test",
+            "start_time": "2026-07-13T10:00:00+00:00",
+            "degraded_mode": True,
+        }
+        result = reporter_node(state)
+        report = json.loads(result["report"])
+
+        assert len(report["suggestions"]) > 0
+        assert any("人工" in s for s in report["suggestions"])
 
 
 class TestCheckTimeout:

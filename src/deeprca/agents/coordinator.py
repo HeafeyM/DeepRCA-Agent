@@ -38,7 +38,38 @@ __all__ = [
     "root_cause_node",
     "reporter_node",
     "check_timeout",
+    "COORDINATOR_SYSTEM_PROMPT",
 ]
+
+# PRD-02 §3: Coordinator Agent System Prompt
+COORDINATOR_SYSTEM_PROMPT = """你是一个故障诊断智能体系统的通用分析 Agent（Coordinator Agent）。
+
+你的职责是：
+1. 接收告警事件，理解故障上下文
+2. 拆解分析任务，覆盖六个维度：变更、上游流量、下游依赖、集群状态、错误日志、已知问题
+3. 并发调度领域专家子 Agent 执行下钻分析
+4. 汇聚分析结果，构建证据链
+5. 生成结构化分析报告
+
+分析原则：
+- 优先检查变更维度：90% 的故障由变更引起
+- 并发分析：六个维度同时执行，不串行等待
+- 证据驱动：每个结论必须有工具调用结果作为证据
+- 置信度量化：所有发现需标注置信度（0.0~1.0）
+- 容错优先：单个维度失败不影响整体分析
+
+输出要求：
+- 根因结论需包含：结论 + 置信度 + 证据链
+- 建议措施需可执行、有优先级
+- 报告格式遵循 JSON Schema
+
+当前告警信息：
+- 服务: {service_name}
+- 告警类型: {alert_type}
+- 严重程度: {severity}
+- 描述: {description}
+- 时间: {timestamp}
+"""
 
 # 维度 → 分析函数映射（在模块加载时延迟导入，避免循环依赖）
 _DIMENSION_MAP: dict[str, str] = {
@@ -79,6 +110,43 @@ def _parse_iso(ts: str) -> datetime:
 # ─────────────────────────────────────────────
 # B01: intake — 告警解析
 # ─────────────────────────────────────────────
+def _derive_time_window(alert_type: str, alert_ts: str) -> tuple[str, str]:
+    """根据告警类型推导分析时间窗口。
+
+    PRD-02 §2.1: 不同告警类型使用不同的 before/after 窗口。
+    """
+    windows = {
+        "timeout": {"before": 30, "after": 5},
+        "error_rate": {"before": 15, "after": 5},
+        "resource": {"before": 60, "after": 5},
+        "custom": {"before": 30, "after": 5},
+    }
+    window = windows.get(alert_type, windows["custom"])
+    alert_dt = _parse_iso(alert_ts)
+    window_start = (alert_dt - timedelta(minutes=window["before"])).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    window_end = (alert_dt + timedelta(minutes=window["after"])).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    return window_start, window_end
+
+
+def _extract_related_services(alert: dict) -> list[str]:
+    """从告警描述和标签中推导关联服务列表。"""
+    services = set()
+    # 从 labels 提取
+    for key in ("app", "application", "related_service", "dependency"):
+        val = alert.get("labels", {}).get(key)
+        if val:
+            services.add(val)
+    # 从 description 提取服务名（简单启发式：xxx-service 模式）
+    import re
+    desc = alert.get("description", "")
+    for match in re.findall(r"\b([a-z][a-z0-9-]*-service)\b", desc):
+        services.add(match)
+    # 告警服务本身
+    if alert.get("service_name"):
+        services.add(alert["service_name"])
+    return sorted(services)
+
+
 def intake_node(state: DeepRCAState) -> dict:
     """接收告警事件，提取关键字段并标准化。
 
@@ -93,21 +161,24 @@ def intake_node(state: DeepRCAState) -> dict:
     env = labels.get("env") or labels.get("environment")
     app = labels.get("app") or labels.get("application") or raw_alert.get("service_name")
 
-    # 构造时间窗口（告警前 30 分钟到告警时间）
+    # 按告警类型推导时间窗口
+    alert_type = raw_alert.get("alert_type", "custom")
     alert_ts = raw_alert.get("timestamp", _now_iso())
-    alert_dt = _parse_iso(alert_ts)
-    window_start = (alert_dt - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    window_start, window_end = _derive_time_window(alert_type, alert_ts)
+
+    # 推导关联服务列表
+    related_services = _extract_related_services(raw_alert)
 
     parsed = ParsedAlert(
         alert_id=raw_alert.get("alert_id", str(uuid.uuid4())),
         service_name=raw_alert.get("service_name", "unknown"),
-        alert_type=raw_alert.get("alert_type", "custom"),
+        alert_type=alert_type,
         severity=raw_alert.get("severity", "P2"),
         timestamp=alert_ts,
         description=raw_alert.get("description", ""),
         labels=labels,
         time_window_start=window_start,
-        time_window_end=alert_ts,
+        time_window_end=window_end,
         cluster=cluster,
         env=env,
         app=app,
@@ -120,6 +191,7 @@ def intake_node(state: DeepRCAState) -> dict:
         "trace_id": trace_id,
         "start_time": _now_iso(),
         "status": "running",
+        "related_services": related_services,
         "messages": [f"[intake] 解析告警: service={parsed.service_name}, severity={parsed.severity}"],
     }
 
@@ -127,8 +199,63 @@ def intake_node(state: DeepRCAState) -> dict:
 # ─────────────────────────────────────────────
 # B02: planner — 任务拆解
 # ─────────────────────────────────────────────
+# PRD-02 §2.2: 分析维度定义
+ANALYSIS_DIMENSIONS: dict[str, dict] = {
+    "change": {
+        "name": "变更分析",
+        "description": "检查最近变更（部署、配置、扩缩容）是否与告警时间吻合",
+        "tools": ["query_recent_changes"],
+        "priority": 1,
+        "time_window": "24h",
+    },
+    "upstream": {
+        "name": "上游流量分析",
+        "description": "分析上游调用方 QPS、流量分布是否异常",
+        "tools": ["query_metrics", "query_topology"],
+        "priority": 2,
+        "time_window": "1h",
+    },
+    "downstream": {
+        "name": "下游依赖分析",
+        "description": "分析下游依赖服务（DB/Redis/Mafka/RPC）健康状态",
+        "tools": ["query_metrics", "query_trace", "query_topology"],
+        "priority": 3,
+        "time_window": "1h",
+    },
+    "cluster": {
+        "name": "集群状态分析",
+        "description": "检查集群资源（CPU/Memory/Network/Pod）是否异常",
+        "tools": ["query_metrics", "query_topology"],
+        "priority": 4,
+        "time_window": "1h",
+    },
+    "errorlog": {
+        "name": "错误日志分析",
+        "description": "扫描 ErrorLog，提取异常堆栈和错误模式",
+        "tools": ["query_error_logs"],
+        "priority": 5,
+        "time_window": "30m",
+    },
+    "problem": {
+        "name": "已知问题匹配",
+        "description": "匹配已知问题库（历史故障、FAQ、SOP）",
+        "tools": ["query_related_alerts"],
+        "priority": 6,
+        "time_window": "7d",
+    },
+}
+
+# PRD-02 §2.2: 告警类型 → 维度映射表
+_ALERT_TYPE_DIMENSION_MAP: dict[str, list[str]] = {
+    "timeout": ["change", "downstream", "cluster", "errorlog", "upstream", "problem"],
+    "error_rate": ["change", "downstream", "errorlog", "cluster", "upstream", "problem"],
+    "resource": ["cluster", "change", "errorlog", "problem"],
+    "custom": list(ANALYSIS_DIMENSIONS.keys()),
+}
+
+
 def planner_node(state: DeepRCAState) -> dict:
-    """任务拆解，生成 6 维度分析计划。
+    """任务拆解，根据告警类型生成对应维度的分析计划。
 
     输入: state["alert"] = ParsedAlert dict
     输出: {"task_plan": list[TaskPlan]}
@@ -138,23 +265,24 @@ def planner_node(state: DeepRCAState) -> dict:
     service_name = alert.get("service_name", "unknown")
     window_start = alert.get("time_window_start", "")
     window_end = alert.get("time_window_end", "")
+    alert_type = alert.get("alert_type", "custom")
+
+    # 按告警类型选择分析维度
+    dimensions = _ALERT_TYPE_DIMENSION_MAP.get(alert_type, _ALERT_TYPE_DIMENSION_MAP["custom"])
 
     task_plan: list[dict] = []
 
-    # 6 个维度分析任务，按优先级排序
-    dimensions = [
-        ("change", "change_analyzer", 1),      # 变更优先级最高（最常见根因）
-        ("errorlog", "errorlog_analyzer", 2),   # 错误日志次之
-        ("cluster", "cluster_analyzer", 3),     # 集群资源
-        ("upstream", "upstream_analyzer", 4),   # 上游流量
-        ("downstream", "downstream_analyzer", 5), # 下游依赖
-        ("problem", "problem_analyzer", 6),     # 已知问题匹配
-    ]
-
-    for dimension, tool_name, priority in dimensions:
+    for dim in dimensions:
+        config = ANALYSIS_DIMENSIONS[dim]
         task_plan.append({
-            "dimension": dimension,
-            "tool_name": tool_name,
+            "task_id": f"task-{alert.get('alert_id', 'unknown')}-{dim}",
+            "dimension": dim,
+            "name": config["name"],
+            "description": config["description"],
+            "tools": config["tools"],
+            "time_window": config["time_window"],
+            "priority": config["priority"],
+            "status": "pending",
             "params": {
                 "service_name": service_name,
                 "start_time": window_start,
@@ -162,7 +290,6 @@ def planner_node(state: DeepRCAState) -> dict:
                 "alert": alert,
             },
             "timeout": settings.tool_call_timeout,
-            "priority": priority,
         })
 
     # 按优先级排序
@@ -170,7 +297,7 @@ def planner_node(state: DeepRCAState) -> dict:
 
     return {
         "task_plan": task_plan,
-        "messages": [f"[planner] 生成 {len(task_plan)} 个分析任务"],
+        "messages": [f"[planner] 生成 {len(task_plan)} 个分析任务 (alert_type={alert_type})"],
     }
 
 
@@ -252,9 +379,18 @@ async def dispatcher_node(state: DeepRCAState) -> dict:
     # 并发执行所有维度分析
     results = await asyncio.gather(*[_run_one(t) for t in task_plan])
 
+    # PRD-02 §2.3: 全部维度失败时触发降级模式
+    all_failed = all(r.get("error") or r.get("confidence", 0) == 0 for r in results)
+    degraded = all_failed and len(results) > 0
+
+    messages = [f"[dispatcher] 并发完成 {len(results)} 个维度分析"]
+    if degraded:
+        messages.append("[dispatcher] 全部维度失败，触发降级模式")
+
     return {
         "sub_agent_results": list(results),
-        "messages": [f"[dispatcher] 并发完成 {len(results)} 个维度分析"],
+        "degraded_mode": degraded,
+        "messages": messages,
     }
 
 
@@ -412,6 +548,7 @@ def reporter_node(state: DeepRCAState) -> dict:
     """生成分析报告。
 
     汇总根因结果、证据链、分析维度，输出 AnalysisReport。
+    包含建议措施和满意度反馈 URL。
     """
     alert = state.get("alert", {})
     root_cause = state.get("root_cause", {})
@@ -419,6 +556,7 @@ def reporter_node(state: DeepRCAState) -> dict:
     sub_results = state.get("sub_agent_results", [])
     trace_id = state.get("trace_id", "")
     start_time = state.get("start_time", "")
+    degraded_mode = state.get("degraded_mode", False)
 
     # 计算分析耗时
     analysis_duration = None
@@ -443,6 +581,13 @@ def reporter_node(state: DeepRCAState) -> dict:
     # 调用的子 Agent
     sub_agents_invoked = [r.get("agent_name", "") for r in sub_results]
 
+    # PRD-02 §2.6: 生成建议措施
+    suggestions = _generate_suggestions(best_candidate, sub_results, degraded_mode)
+
+    # PRD-02 §2.6: 构建满意度反馈 URL
+    feedback_token = str(uuid.uuid4())[:8]
+    satisfaction_url = _build_feedback_url(trace_id, feedback_token)
+
     report = AnalysisReport(
         trace_id=trace_id,
         alert_id=alert.get("alert_id", ""),
@@ -456,15 +601,77 @@ def reporter_node(state: DeepRCAState) -> dict:
         analysis_duration=analysis_duration,
         dimensions_analyzed=dimensions_analyzed,
         sub_agents_invoked=sub_agents_invoked,
+        suggestions=suggestions,
+        satisfaction_url=satisfaction_url,
         timestamp=_now_iso(),
-        feedback_token=str(uuid.uuid4())[:8],
+        feedback_token=feedback_token,
     )
+
+    # PRD-02 §2.6: 推送通知（IM/邮件/Webhook）
+    _push_notification(report.model_dump(), alert, degraded_mode)
 
     return {
         "report": report.model_dump_json(),
         "status": "completed",
         "messages": [f"[reporter] 报告生成完成, trace_id={trace_id}"],
     }
+
+
+def _generate_suggestions(best_candidate: dict, sub_results: list[dict], degraded: bool) -> list[str]:
+    """根据根因结果生成建议措施。
+
+    PRD-02 §2.6: 报告需包含可执行的建议措施。
+    """
+    if degraded:
+        return ["建议人工介入分析，所有自动分析维度均未得到有效结果"]
+
+    suggestions: list[str] = []
+    root_cause = best_candidate.get("root_cause", "")
+    dimension = best_candidate.get("source", "")
+
+    # 基于根因维度生成建议
+    if "change" in root_cause.lower() or dimension == "change":
+        suggestions.append("检查最近变更记录，考虑回滚高风险变更")
+    if "db" in root_cause.lower() or "database" in root_cause.lower():
+        suggestions.append("检查数据库主从同步状态和慢查询日志")
+    if "timeout" in root_cause.lower():
+        suggestions.append("检查服务超时配置和下游依赖响应时间")
+    if "resource" in root_cause.lower() or "cpu" in root_cause.lower() or "memory" in root_cause.lower():
+        suggestions.append("检查集群资源使用情况，考虑扩容")
+
+    # 通用建议
+    if not suggestions:
+        suggestions.append("根据根因分析结果，检查相关服务和依赖状态")
+
+    suggestions.append("持续监控告警服务指标，确认问题是否恢复")
+    return suggestions
+
+
+def _build_feedback_url(trace_id: str, feedback_token: str) -> str:
+    """构建满意度反馈 URL。"""
+    settings = get_settings()
+    return f"{settings.app_host}:{settings.app_port}/api/v1/feedback?trace_id={trace_id}&token={feedback_token}"
+
+
+def _push_notification(report: dict, alert: dict, degraded: bool) -> None:
+    """推送通知（IM/邮件/Webhook）。
+
+    PRD-02 §2.6: 报告生成后推送通知。
+    当前为日志输出，生产环境可对接 IM/邮件系统。
+    """
+    severity = alert.get("severity", "P2")
+    service = alert.get("service_name", "unknown")
+    root_cause = report.get("root_cause", "未定位")
+    confidence = report.get("confidence", 0.0)
+    degraded_tag = " [降级模式]" if degraded else ""
+
+    # 当前仅输出日志，生产环境对接通知系统
+    import logging
+    logger = logging.getLogger("deeprca.reporter")
+    logger.info(
+        "分析报告通知%s: service=%s severity=%s root_cause=%s confidence=%.2f trace_id=%s",
+        degraded_tag, service, severity, root_cause, confidence, report.get("trace_id", ""),
+    )
 
 
 # ─────────────────────────────────────────────

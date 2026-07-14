@@ -51,3 +51,6 @@ class DeepRCAState(TypedDict):
     trace_id: str
     start_time: str
     status: str                          # running / completed / failed / timeout
+    # 扩展字段
+    related_services: list[str]          # 关联服务列表（intake 提取）
+    degraded_mode: bool                  # 是否降级模式（dispatcher 全部失败）

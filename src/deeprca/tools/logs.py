@@ -57,6 +57,26 @@ async def query_error_logs(
             )
             resp.raise_for_status()
             data = resp.json()
-            return {"service": service_name, "logs": data.get("logs", [])}
+            logs = data.get("logs", [])
+            # 提取错误模式统计
+            from collections import Counter
+            import re as _re
+            messages = [log.get("message", "") for log in logs]
+            # 简单模式提取：取每条日志的前 50 个字符作为模式
+            patterns = Counter()
+            for msg in messages:
+                # 提取关键错误模式（如 Lock wait, Connection refused 等）
+                for match in _re.findall(r"([A-Z][a-z]+(?:\s+[a-z]+){1,3})", msg):
+                    patterns[match] += 1
+            error_patterns = [
+                {"pattern": p, "count": c, "first_seen": logs[0].get("timestamp", "") if logs else ""}
+                for p, c in patterns.most_common(5)
+            ]
+            return {
+                "service": service_name,
+                "total": len(logs),
+                "logs": logs,
+                "error_patterns": error_patterns,
+            }
     except Exception as e:
-        return {"service": service_name, "logs": [], "error": str(e)}
+        return {"service": service_name, "total": 0, "logs": [], "error_patterns": [], "error": str(e)}

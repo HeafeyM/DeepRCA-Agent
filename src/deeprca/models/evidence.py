@@ -46,8 +46,17 @@ class EvidencePool(BaseModel):
         self.evidences.append(evidence)
 
     def sorted_by_confidence(self) -> list[Evidence]:
-        """按置信度降序排序。"""
-        return sorted(self.evidences, key=lambda e: e.confidence, reverse=True)
+        """按证据等级 + 置信度降序排序。
+
+        PRD-02 §2.4: 先按 EvidenceLevel 排序（HIGH > MEDIUM > LOW），
+        同等级内按置信度降序。
+        """
+        level_order = {EvidenceLevel.HIGH: 3, EvidenceLevel.MEDIUM: 2, EvidenceLevel.LOW: 1}
+        return sorted(
+            self.evidences,
+            key=lambda e: (level_order.get(e.level, 0), e.confidence),
+            reverse=True,
+        )
 
     def filter_by_dimension(self, dimension: str) -> list[Evidence]:
         """按维度过滤。"""

@@ -19,22 +19,30 @@ from deeprca.config import get_settings
 @tool
 async def query_recent_changes(
     service_name: str,
-    time_window: int = 3600,
+    time_range: str = "24h",
+    change_type: str = "",
 ) -> dict:
     """查询近期变更记录。
 
     Args:
         service_name: 服务名称
-        time_window: 时间窗口（秒），默认 1 小时
+        time_range: 时间范围 (1h/6h/24h/7d)
+        change_type: 变更类型过滤 (deploy/config/scale/rollback)
 
     Returns:
         包含变更记录的字典
     """
     settings = get_settings()
+    # 将时间范围转为秒
+    range_map = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800}
+    time_window = range_map.get(time_range, 86400)
+
     params: dict = {
         "service_name": service_name,
         "time_window": time_window,
     }
+    if change_type:
+        params["change_type"] = change_type
 
     try:
         async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
@@ -44,6 +52,11 @@ async def query_recent_changes(
             )
             resp.raise_for_status()
             data = resp.json()
-            return {"service": service_name, "changes": data.get("changes", [])}
+            changes = data.get("changes", [])
+            return {
+                "service": service_name,
+                "total": len(changes),
+                "changes": changes,
+            }
     except Exception as e:
-        return {"service": service_name, "changes": [], "error": str(e)}
+        return {"service": service_name, "total": 0, "changes": [], "error": str(e)}

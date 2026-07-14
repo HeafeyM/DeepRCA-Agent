@@ -22,6 +22,7 @@ async def query_metrics(
     metric_name: str,
     start_time: str,
     end_time: str,
+    granularity: str = "1m",
     labels: dict | None = None,
 ) -> dict:
     """查询监控指标时序数据。
@@ -31,10 +32,11 @@ async def query_metrics(
         metric_name: 指标名称（如 qps, error_rate, tp99）
         start_time: 起始时间 ISO 8601
         end_time: 结束时间 ISO 8601
+        granularity: 粒度 (1m/5m/1h)
         labels: 标签过滤条件
 
     Returns:
-        包含时序数据点的字典
+        包含时序数据点和聚合统计的字典
     """
     settings = get_settings()
     params: dict = {
@@ -42,6 +44,7 @@ async def query_metrics(
         "metric_name": metric_name,
         "start_time": start_time,
         "end_time": end_time,
+        "granularity": granularity,
     }
     if labels:
         params["labels"] = labels
@@ -54,6 +57,21 @@ async def query_metrics(
             )
             resp.raise_for_status()
             data = resp.json()
-            return {"service": service_name, "metric": metric_name, "data_points": data.get("data_points", [])}
+            data_points = data.get("data_points", [])
+            # 计算聚合统计
+            values = [p.get("value", 0) for p in data_points]
+            aggregation = {}
+            if values:
+                aggregation = {
+                    "min": min(values),
+                    "max": max(values),
+                    "avg": sum(values) / len(values),
+                }
+            return {
+                "service": service_name,
+                "metric": metric_name,
+                "data_points": data_points,
+                "aggregation": aggregation,
+            }
     except Exception as e:
-        return {"service": service_name, "metric": metric_name, "data_points": [], "error": str(e)}
+        return {"service": service_name, "metric": metric_name, "data_points": [], "aggregation": {}, "error": str(e)}

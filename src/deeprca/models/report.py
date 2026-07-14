@@ -33,5 +33,7 @@ class AnalysisReport(BaseModel):
     analysis_duration: Optional[float] = Field(default=None, description="分析耗时（秒）")
     dimensions_analyzed: list[str] = Field(default_factory=list, description="已分析维度列表")
     sub_agents_invoked: list[str] = Field(default_factory=list, description="调用的子 Agent 列表")
+    suggestions: list[str] = Field(default_factory=list, description="建议措施列表")
+    satisfaction_url: Optional[str] = Field(default=None, description="满意度反馈 URL")
     timestamp: str = Field(default="", description="报告生成时间戳")
     feedback_token: Optional[str] = Field(default=None, description="满意度反馈 token")
