@@ -305,40 +305,37 @@ def planner_node(state: DeepRCAState) -> dict:
 # B03: dispatcher — 并发调度
 # ─────────────────────────────────────────────
 async def dispatcher_node(state: DeepRCAState) -> dict:
-    """并发派发 6 维度分析任务。
+    """并发派发 L1 维度分析任务 + L2 领域专家子图。
 
-    使用 asyncio.gather + ThreadPoolExecutor 并发执行。
+    使用 asyncio.gather 并发执行 L1 六维度分析器。
+    L1 完成后，根据 downstream 维度发现的异常线索触发 L2 领域专家子图。
     单任务超时降级为 error result，不阻塞其他任务。
     """
     task_plan = state.get("task_plan", [])
     if not task_plan:
         return {"sub_agent_results": [], "messages": ["[dispatcher] 无任务可执行"]}
 
-    # 延迟导入维度分析函数（PRD-03 实现，当前降级为空结果）
-    try:
-        from deeprca.agents.dimensions import (
-            analyze_change,
-            analyze_cluster,
-            analyze_downstream,
-            analyze_errorlog,
-            analyze_problem,
-            analyze_upstream,
-        )
+    # L1 维度分析函数映射（PRD-03 已实现）
+    from deeprca.agents.dimensions import (
+        analyze_change,
+        analyze_cluster,
+        analyze_downstream,
+        analyze_errorlog,
+        analyze_problem,
+        analyze_upstream,
+    )
 
-        _func_map = {
-            "change": analyze_change,
-            "upstream": analyze_upstream,
-            "downstream": analyze_downstream,
-            "cluster": analyze_cluster,
-            "errorlog": analyze_errorlog,
-            "problem": analyze_problem,
-        }
-    except ImportError:
-        # PRD-03 尚未实现，所有维度返回降级结果
-        _func_map = {}
+    _func_map = {
+        "change": analyze_change,
+        "upstream": analyze_upstream,
+        "downstream": analyze_downstream,
+        "cluster": analyze_cluster,
+        "errorlog": analyze_errorlog,
+        "problem": analyze_problem,
+    }
 
     async def _run_one(task: dict) -> dict:
-        """执行单个维度分析，带超时和错误降级。"""
+        """执行单个 L1 维度分析，带超时和错误降级。"""
         dimension = task["dimension"]
         params = task["params"]
         timeout = task.get("timeout", 10)
@@ -349,7 +346,7 @@ async def dispatcher_node(state: DeepRCAState) -> dict:
                 agent_name=f"{dimension}_analyzer",
                 dimension=dimension,
                 confidence=0.0,
-                error=f"维度分析器尚未实现 (待 PRD-03): {dimension}",
+                error=f"未知的分析维度: {dimension}",
                 timestamp=_now_iso(),
             ).model_dump()
 
@@ -376,19 +373,38 @@ async def dispatcher_node(state: DeepRCAState) -> dict:
                 timestamp=_now_iso(),
             ).model_dump()
 
-    # 并发执行所有维度分析
-    results = await asyncio.gather(*[_run_one(t) for t in task_plan])
+    # 并发执行所有 L1 维度分析
+    l1_results = await asyncio.gather(*[_run_one(t) for t in task_plan])
+    all_results = list(l1_results)
+
+    # L2 领域专家调度：根据 L1 发现的异常线索触发
+    from deeprca.graph.subgraphs import dispatch_to_experts
+
+    alert = state.get("alert", {})
+    l1_findings = [
+        r.get("findings", []) for r in l1_results
+        if r.get("findings") and not r.get("error")
+    ]
+    # 将 L1 发现作为上下文传递给 L2 专家
+    l2_context = {"l1_findings": l1_findings, "task_plan": task_plan}
+
+    l2_results = await dispatch_to_experts(task_plan, alert, l2_context)
+    all_results.extend(r.model_dump() for r in l2_results)
 
     # PRD-02 §2.3: 全部维度失败时触发降级模式
-    all_failed = all(r.get("error") or r.get("confidence", 0) == 0 for r in results)
-    degraded = all_failed and len(results) > 0
+    all_failed = all(r.get("error") or r.get("confidence", 0) == 0 for r in all_results)
+    degraded = all_failed and len(all_results) > 0
 
-    messages = [f"[dispatcher] 并发完成 {len(results)} 个维度分析"]
+    messages = [
+        f"[dispatcher] L1 并发完成 {len(l1_results)} 个维度分析",
+    ]
+    if l2_results:
+        messages.append(f"[dispatcher] L2 触发 {len(l2_results)} 个领域专家")
     if degraded:
-        messages.append("[dispatcher] 全部维度失败，触发降级模式")
+        messages.append("[dispatcher] 全部分析失败，触发降级模式")
 
     return {
-        "sub_agent_results": list(results),
+        "sub_agent_results": all_results,
         "degraded_mode": degraded,
         "messages": messages,
     }
