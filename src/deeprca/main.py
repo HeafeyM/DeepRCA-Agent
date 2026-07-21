@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import sys
 
+import httpx
 from fastapi import FastAPI
 
 from deeprca.api.routes import create_router
@@ -29,13 +30,44 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="DeepRCA-Agent",
         description="LLM Agent 驱动的故障诊断智能体系统",
-        version="0.2.0",
+        version="0.3.0",
     )
 
-    # --- Health Check ---
+    # --- Health Check (PRD-06 §9.1: 检查 Redis + Mock 连通性) --- #
     @app.get("/health")
     async def health_check():
-        return {"status": "healthy", "version": "0.2.0", "env": settings.app_env}
+        checks = {}
+
+        # Redis 连通性
+        try:
+            import redis
+            r = redis.Redis(
+                host=settings.redis_host,
+                port=settings.redis_port,
+                db=settings.redis_db,
+                password=settings.redis_password or None,
+            )
+            r.ping()
+            checks["redis"] = "healthy"
+        except Exception:
+            checks["redis"] = "unhealthy"
+
+        # Mock 环境连通性
+        try:
+            async with httpx.AsyncClient() as client:
+                mock_url = settings.mock_k8s_api.rstrip("/")
+                resp = await client.get(f"{mock_url}/api/v1/mock/health", timeout=3)
+                checks["mock_env"] = "healthy" if resp.status_code == 200 else "unhealthy"
+        except Exception:
+            checks["mock_env"] = "unhealthy"
+
+        all_healthy = all(v == "healthy" for v in checks.values())
+        return {
+            "status": "healthy" if all_healthy else "degraded",
+            "version": "0.3.0",
+            "env": settings.app_env,
+            "checks": checks,
+        }
 
     # --- API v1 路由 --- #
     app.include_router(create_router())
