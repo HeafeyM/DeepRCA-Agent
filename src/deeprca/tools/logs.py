@@ -14,6 +14,7 @@ import httpx
 from langchain_core.tools import tool
 
 from deeprca.config import get_settings
+from deeprca.tools.mock_data import mock_error_logs as _mock_error_logs
 
 
 @tool
@@ -39,6 +40,11 @@ async def query_error_logs(
         包含日志条目的字典
     """
     settings = get_settings()
+
+    # Mock 环境直接返回模拟数据
+    if settings.mock_env_enabled:
+        return _mock_error_logs(service_name, start_time, end_time, level, keyword, limit)
+
     params: dict = {
         "service_name": service_name,
         "start_time": start_time,

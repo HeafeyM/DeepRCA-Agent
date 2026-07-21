@@ -14,6 +14,7 @@ import httpx
 from langchain_core.tools import tool
 
 from deeprca.config import get_settings
+from deeprca.tools.mock_data import mock_metrics as _mock_metrics
 
 
 @tool
@@ -39,6 +40,11 @@ async def query_metrics(
         包含时序数据点和聚合统计的字典
     """
     settings = get_settings()
+
+    # Mock 环境直接返回模拟数据
+    if settings.mock_env_enabled:
+        return _mock_metrics(service_name, metric_name, start_time, end_time, granularity, labels)
+
     params: dict = {
         "service_name": service_name,
         "metric_name": metric_name,

@@ -14,6 +14,7 @@ import httpx
 from langchain_core.tools import tool
 
 from deeprca.config import get_settings
+from deeprca.tools.mock_data import mock_related_alerts as _mock_related_alerts
 
 
 @tool
@@ -33,6 +34,11 @@ async def query_related_alerts(
         包含关联告警和已知问题的字典
     """
     settings = get_settings()
+
+    # Mock 环境直接返回模拟数据
+    if settings.mock_env_enabled:
+        return _mock_related_alerts(service_name, time_range, alert_type)
+
     # 将时间范围转为秒
     range_map = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800}
     time_window = range_map.get(time_range, 604800)

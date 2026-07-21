@@ -14,6 +14,7 @@ import httpx
 from langchain_core.tools import tool
 
 from deeprca.config import get_settings
+from deeprca.tools.mock_data import mock_topology as _mock_topology
 
 
 @tool
@@ -33,6 +34,11 @@ async def query_topology(
         包含上下游依赖关系的字典
     """
     settings = get_settings()
+
+    # Mock 环境直接返回模拟数据
+    if settings.mock_env_enabled:
+        return _mock_topology(service_name, depth, direction)
+
     params: dict = {
         "service_name": service_name,
         "depth": depth,

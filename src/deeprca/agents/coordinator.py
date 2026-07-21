@@ -591,14 +591,29 @@ def reporter_node(state: DeepRCAState) -> dict:
     top_evidences = evidence_summary.get("top_evidences", [])
     key_evidence = [e.get("finding", "") for e in top_evidences[:5]]
 
+    # PRD-04 §8: 优先使用 L3 RootCauseAgent 生成的建议措施
+    # L3 已实现 8 种精细建议模板（change/db_slave_delay/db_lock/redis_memory/kafka_lag/rpc_circuit_breaker/resource_saturation/oom）
+    # 仅当 L3 未生成建议时，降级使用 PRD-02 的粗粒度建议
+    suggestions = root_cause.get("suggestions", [])
+    if not suggestions:
+        suggestions = _generate_suggestions(best_candidate, sub_results, degraded_mode)
+
+    # PRD-04 §7: 使用 L3 生成的证据链补充 key_evidence
+    l3_evidence_chain = root_cause.get("evidence_chain", [])
+    if l3_evidence_chain:
+        for ev in l3_evidence_chain[:3]:
+            if isinstance(ev, dict):
+                ev_text = ev.get("evidence", "")
+            else:
+                ev_text = str(ev)
+            if ev_text and ev_text not in key_evidence:
+                key_evidence.insert(0, ev_text)
+
     # 已分析维度
     dimensions_analyzed = list({r.get("dimension", "") for r in sub_results if r.get("dimension")})
 
     # 调用的子 Agent
     sub_agents_invoked = [r.get("agent_name", "") for r in sub_results]
-
-    # PRD-02 §2.6: 生成建议措施
-    suggestions = _generate_suggestions(best_candidate, sub_results, degraded_mode)
 
     # PRD-02 §2.6: 构建满意度反馈 URL
     feedback_token = str(uuid.uuid4())[:8]

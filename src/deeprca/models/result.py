@@ -36,3 +36,6 @@ class RootCauseResult(BaseModel):
     llm_used: bool = Field(default=False, description="是否使用了 LLM 推理")
     trace_id: str = Field(default="", description="追踪 ID")
     timestamp: str = Field(default="", description="结果生成时间戳")
+    suggestions: list[str] = Field(default_factory=list, description="建议措施列表（PRD-04 §8 模板）")
+    evidence_chain: list[dict] = Field(default_factory=list, description="证据链（按置信度排序，最多 5 条）")
+    matched_rules: list[dict] = Field(default_factory=list, description="命中的规则列表 [{rule_id, name}]")

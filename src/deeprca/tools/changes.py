@@ -14,6 +14,7 @@ import httpx
 from langchain_core.tools import tool
 
 from deeprca.config import get_settings
+from deeprca.tools.mock_data import mock_recent_changes as _mock_recent_changes
 
 
 @tool
@@ -33,6 +34,11 @@ async def query_recent_changes(
         包含变更记录的字典
     """
     settings = get_settings()
+
+    # Mock 环境直接返回模拟数据
+    if settings.mock_env_enabled:
+        return _mock_recent_changes(service_name, time_range, change_type)
+
     # 将时间范围转为秒
     range_map = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800}
     time_window = range_map.get(time_range, 86400)

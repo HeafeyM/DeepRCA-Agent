@@ -89,6 +89,8 @@ def create_router() -> APIRouter:
             "trace_id": trace_id,
             "start_time": _now_iso(),
             "status": "running",
+            "related_services": [],
+            "degraded_mode": False,
         }
 
         # 存储初始状态

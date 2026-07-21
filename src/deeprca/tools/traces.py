@@ -14,6 +14,7 @@ import httpx
 from langchain_core.tools import tool
 
 from deeprca.config import get_settings
+from deeprca.tools.mock_data import mock_trace as _mock_trace
 
 
 @tool
@@ -39,6 +40,11 @@ async def query_trace(
         包含调用链数据和慢 span 统计的字典
     """
     settings = get_settings()
+
+    # Mock 环境直接返回模拟数据
+    if settings.mock_env_enabled:
+        return _mock_trace(service_name, start_time, end_time, trace_id, status, limit)
+
     params: dict = {
         "service_name": service_name,
         "start_time": start_time,
