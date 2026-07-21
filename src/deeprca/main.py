@@ -17,6 +17,7 @@ from fastapi import FastAPI
 
 from deeprca.api.routes import create_router
 from deeprca.config import get_settings
+from deeprca.mock_env import create_mock_router
 
 __all__ = ["create_app"]
 
@@ -36,8 +37,11 @@ def create_app() -> FastAPI:
     async def health_check():
         return {"status": "healthy", "version": "0.2.0", "env": settings.app_env}
 
-    # --- API v1 路由 ---
+    # --- API v1 路由 --- #
     app.include_router(create_router())
+
+    # --- Mock 环境路由 --- #
+    app.include_router(create_mock_router())
 
     return app
 
