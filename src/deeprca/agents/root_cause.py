@@ -324,6 +324,7 @@ class RootCauseAgent:
 
         # 生成建议措施
         suggestions = self._generate_suggestions(best["root_cause"], evidence_chain)
+        category = self._categorize(best["root_cause"], evidence_chain)
 
         result = RootCauseResult(
             candidates=[RootCauseCandidate(**c) for c in candidates],
@@ -341,6 +342,7 @@ class RootCauseAgent:
             {"rule_id": r["rule_id"], "name": r.get("name", "")}
             for r in rule_set + boost_rules
         ]
+        result_dict["category"] = category
         return result_dict
 
     # ------------------------------------------------------------------ #
@@ -381,6 +383,7 @@ class RootCauseAgent:
         suggestions = self._generate_suggestions(
             best.get("root_cause", ""), evidence_chain
         )
+        category = self._categorize(best.get("root_cause", ""), evidence_chain)
 
         result = RootCauseResult(
             candidates=[RootCauseCandidate(**c) for c in candidates],
@@ -398,6 +401,7 @@ class RootCauseAgent:
             {"rule_id": r["rule_id"], "name": r.get("name", "")}
             for r in boost_rules
         ]
+        result_dict["category"] = category
         return result_dict
 
     # ------------------------------------------------------------------ #

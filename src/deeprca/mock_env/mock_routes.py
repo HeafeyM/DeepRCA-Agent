@@ -114,8 +114,9 @@ def create_mock_router() -> APIRouter:
         actual_conclusion = ""
         actual_confidence = 0.0
         if root_cause and isinstance(root_cause, dict):
-            actual_conclusion = root_cause.get("conclusion", "")
-            actual_confidence = root_cause.get("confidence", 0.0)
+            best = root_cause.get("best_candidate") or {}
+            actual_conclusion = best.get("root_cause", "")
+            actual_confidence = best.get("confidence", 0.0)
 
         expected = scenario["expected_root_cause"]
         expected_min = scenario["expected_confidence_min"]

@@ -38,16 +38,16 @@ class TestMockK8s:
 
     def test_inject_pod_restart(self, reset_mock, mock_client):
         resp = mock_client.post("/k8s/inject/pod-restart", json={
-            "deployment": "order-service",
-            "pod_name": "order-service-0",
+            "deployment_name": "order-service",
+            "pod_index": 0,
         })
         assert resp.status_code == 200
 
     def test_inject_resource_pressure(self, reset_mock, mock_client):
         resp = mock_client.post("/k8s/inject/resource-pressure", json={
-            "deployment": "order-service",
-            "cpu_percent": 95.0,
-            "memory_percent": 90.0,
+            "deployment_name": "order-service",
+            "cpu_usage": 95.0,
+            "memory_usage": 90.0,
         })
         assert resp.status_code == 200
 
@@ -91,7 +91,7 @@ class TestMockRedis:
 
     def test_inject_memory_pressure(self, reset_mock, mock_client):
         resp = mock_client.post("/redis/redis-prod-01/inject/memory-pressure", json={
-            "memory_gb": 7.5,
+            "used_memory": 7.5,
         })
         assert resp.status_code == 200
 
@@ -113,7 +113,7 @@ class TestMockKafka:
 
     def test_inject_consumer_offline(self, reset_mock, mock_client):
         resp = mock_client.post("/kafka/kafka-prod/inject/consumer-offline", json={
-            "consumer_id": "consumer-1",
+            "consumer": "consumer-1",
         })
         assert resp.status_code == 200
 

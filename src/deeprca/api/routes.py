@@ -19,6 +19,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
+from deeprca.api.websocket import ConnectionManager
 from deeprca.config import get_settings
 from deeprca.graph import build_coordinator_graph
 
@@ -26,6 +27,9 @@ __all__ = ["create_router", "analysis_store"]
 
 # 全局分析状态存储（内存，生产环境应替换为 Redis）
 analysis_store: dict[str, dict[str, Any]] = {}
+
+# WebSocket 连接管理器单例
+_ws_manager = ConnectionManager()
 
 # 全局编译图单例
 _compiled_graph = None
@@ -98,6 +102,8 @@ def create_router() -> APIRouter:
             "status": "running",
             "start_time": _now_iso(),
             "result": None,
+            "sub_agent_count": 0,
+            "root_cause_done": False,
         }
 
         # 异步执行图（不阻塞 HTTP 响应）
@@ -108,6 +114,8 @@ def create_router() -> APIRouter:
                 analysis_store[trace_id]["status"] = final_state.get("status", "completed")
                 analysis_store[trace_id]["result"] = final_state.get("report")
                 analysis_store[trace_id]["root_cause"] = final_state.get("root_cause")
+                analysis_store[trace_id]["sub_agent_count"] = len(final_state.get("sub_agent_results", []))
+                analysis_store[trace_id]["root_cause_done"] = final_state.get("root_cause") is not None
                 analysis_store[trace_id]["completed_at"] = _now_iso()
             except Exception as exc:
                 analysis_store[trace_id]["status"] = "failed"
@@ -142,9 +150,18 @@ def create_router() -> APIRouter:
                 content={"trace_id": trace_id, "message": "Trace not found"},
             )
 
-        # PRD-02 §6.2: 返回进度信息
+        # PRD-02 §6.2: 返回进度信息（基于实际分析阶段动态计算）
         status = record["status"]
-        progress = {"total_dimensions": 6, "completed": 0, "failed": 0, "pending": 6}
+        total_stages = 7  # intake + planner + dispatcher + 6维采集 + root_cause + reporter
+        sub_count = record.get("sub_agent_count", 0)
+        rc_done = record.get("root_cause_done", False)
+        completed = min(sub_count, 6) + (1 if rc_done else 0) + (1 if status in ("completed", "failed") else 0)
+        progress = {
+            "total_dimensions": 6,
+            "completed": min(completed, total_stages),
+            "failed": 1 if status == "failed" else 0,
+            "pending": max(total_stages - min(completed, total_stages) - (1 if status == "failed" else 0), 0),
+        }
         elapsed_seconds = 0
         start_time = record.get("start_time")
         if start_time:
@@ -228,6 +245,13 @@ def create_router() -> APIRouter:
         settings = get_settings()
         if not settings.mock_env_enabled:
             asyncio.create_task(_push_feedback_to_kafka(feedback, settings))
+        else:
+            # Mock 模式下记录日志，确保反馈数据可追溯
+            import logging
+            logging.getLogger(__name__).info(
+                "Feedback received (mock mode): trace_id=%s satisfaction=%s",
+                trace_id, feedback.get("satisfaction"),
+            )
 
         return {"status": "accepted", "message": "Feedback received"}
 
@@ -237,14 +261,14 @@ def create_router() -> APIRouter:
     @router.websocket("/analyze/{trace_id}/stream")
     async def analysis_stream(ws: WebSocket, trace_id: str):
         """WebSocket 实时推送分析进度。"""
-        await ws.accept()
+        await _ws_manager.connect(trace_id, ws)
         try:
             await ws.send_json({"trace_id": trace_id, "event": "connected"})
 
             record = analysis_store.get(trace_id)
             if record is None:
                 await ws.send_json({"trace_id": trace_id, "event": "error", "message": "Trace not found"})
-                await ws.close()
+                await _ws_manager.disconnect(trace_id, ws)
                 return
 
             # 轮询状态，每秒推送一次
@@ -272,7 +296,7 @@ def create_router() -> APIRouter:
         except WebSocketDisconnect:
             pass
         finally:
-            await ws.close()
+            await _ws_manager.disconnect(trace_id, ws)
 
     return router
 
