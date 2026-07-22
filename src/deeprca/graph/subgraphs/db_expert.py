@@ -22,7 +22,6 @@ from langgraph.graph.state import CompiledStateGraph
 
 from deeprca.config import get_settings
 from deeprca.graph.subgraphs.base_expert import BaseExpertAgent
-from deeprca.graph.subgraphs.expert_mock_data import mock_db_metrics
 from deeprca.models import SubAgentResult
 
 __all__ = ["DBExpertAgent"]
@@ -80,10 +79,23 @@ class DBExpertAgent(BaseExpertAgent):
             settings = get_settings()
             service = state.get("alert", {}).get("service_name", "")
 
-            # Mock 模式下直接返回与子 Agent 口径一致的本地数据
-            # mock-env 未暴露 /api/metrics/db 端点，避免 404
             if settings.mock_env_enabled:
-                metrics = mock_db_metrics(service)
+                # 通过 Mock API 获取场景感知数据（嵌套格式），转换为扁平格式
+                async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
+                    resp = await client.get(
+                        f"{settings.mock_monitor_api}/api/v1/mock/db/mysql-prod-01/metrics",
+                    )
+                    resp.raise_for_status()
+                    raw = resp.json()
+                # 嵌套格式 → 扁平格式转换
+                active_conn = raw.get("active_connections", {})
+                metrics = {
+                    "active_connections": active_conn.get("current", 0),
+                    "max_connections": active_conn.get("max", 1),
+                    "slow_query_count": raw.get("slow_query_count", {}).get("current", 0),
+                    "lock_wait_count": raw.get("innodb_lock_waits", {}).get("current", 0),
+                    "replication_lag_seconds": raw.get("slave_delay_seconds", {}).get("current", 0.0),
+                }
                 return {"metrics": metrics, "error": None}
 
             async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
@@ -218,3 +230,4 @@ class DBExpertAgent(BaseExpertAgent):
                 error="子图执行未返回结果",
             )
         return result
+

@@ -4,17 +4,33 @@
 <table>
 <tr><th>版本</th><th>变更说明</th><th>关联</th></tr>
 <tr><td>0.1.0</td><td>初始创建</td><td>REQ: 20260713-总体架构, TECH: 04b §3.3</td></tr>
+<tr><td>0.2.0</td><td>Mock 模式改为 HTTP 调用 Mock API 获取场景感知数据</td><td>reviewer-fix-3</td></tr>
 </table>
 @author xianhuimeng
 """
 
 from __future__ import annotations
 
+import re as _re
+from collections import Counter
+
 import httpx
 from langchain_core.tools import tool
 
 from deeprca.config import get_settings
-from deeprca.tools.mock_data import mock_error_logs as _mock_error_logs
+
+
+def _extract_error_patterns(logs: list[dict]) -> list[dict]:
+    """从日志中提取错误模式统计。"""
+    messages = [log.get("message", "") for log in logs]
+    patterns = Counter()
+    for msg in messages:
+        for match in _re.findall(r"([A-Z][a-z]+(?:\s+[a-z]+){1,3})", msg):
+            patterns[match] += 1
+    return [
+        {"pattern": p, "count": c, "first_seen": logs[0].get("timestamp", "") if logs else ""}
+        for p, c in patterns.most_common(5)
+    ]
 
 
 @tool
@@ -41,10 +57,27 @@ async def query_error_logs(
     """
     settings = get_settings()
 
-    # Mock 环境直接返回模拟数据
+    # Mock 模式：通过 Mock API 获取场景感知数据
     if settings.mock_env_enabled:
-        return _mock_error_logs(service_name, start_time, end_time, level, keyword, limit)
+        try:
+            async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
+                resp = await client.get(
+                    f"{settings.mock_monitor_api}/api/v1/mock/service/{service_name}/logs",
+                    params={"start_time": start_time, "end_time": end_time, "level": level, "keyword": keyword, "limit": limit},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                logs = data.get("logs", [])
+                return {
+                    "service": service_name,
+                    "total": len(logs),
+                    "logs": logs,
+                    "error_patterns": _extract_error_patterns(logs),
+                }
+        except Exception as e:
+            return {"service": service_name, "total": 0, "logs": [], "error_patterns": [], "error": str(e)}
 
+    # 非 Mock 模式（占位实现）
     params: dict = {
         "service_name": service_name,
         "start_time": start_time,
@@ -55,7 +88,6 @@ async def query_error_logs(
     if keyword:
         params["keyword"] = keyword
 
-    # NOTE: 非 Mock 模式下的 HTTP 路径为占位实现，需对接真实监控系统时重新设计。
     try:
         async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
             resp = await client.get(
@@ -65,25 +97,11 @@ async def query_error_logs(
             resp.raise_for_status()
             data = resp.json()
             logs = data.get("logs", [])
-            # 提取错误模式统计
-            from collections import Counter
-            import re as _re
-            messages = [log.get("message", "") for log in logs]
-            # 简单模式提取：取每条日志的前 50 个字符作为模式
-            patterns = Counter()
-            for msg in messages:
-                # 提取关键错误模式（如 Lock wait, Connection refused 等）
-                for match in _re.findall(r"([A-Z][a-z]+(?:\s+[a-z]+){1,3})", msg):
-                    patterns[match] += 1
-            error_patterns = [
-                {"pattern": p, "count": c, "first_seen": logs[0].get("timestamp", "") if logs else ""}
-                for p, c in patterns.most_common(5)
-            ]
             return {
                 "service": service_name,
                 "total": len(logs),
                 "logs": logs,
-                "error_patterns": error_patterns,
+                "error_patterns": _extract_error_patterns(logs),
             }
     except Exception as e:
         return {"service": service_name, "total": 0, "logs": [], "error_patterns": [], "error": str(e)}

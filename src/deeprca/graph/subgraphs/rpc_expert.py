@@ -22,7 +22,6 @@ from langgraph.graph.state import CompiledStateGraph
 
 from deeprca.config import get_settings
 from deeprca.graph.subgraphs.base_expert import BaseExpertAgent
-from deeprca.graph.subgraphs.expert_mock_data import mock_rpc_metrics
 from deeprca.models import SubAgentResult
 
 __all__ = ["RPCExpertAgent"]
@@ -81,7 +80,50 @@ class RPCExpertAgent(BaseExpertAgent):
             service = state.get("alert", {}).get("service_name", "")
 
             if settings.mock_env_enabled:
-                metrics = mock_rpc_metrics(service)
+                # 无独立 RPC 模拟器，从 service_simulator 指标推导
+                async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
+                    err_resp = await client.get(
+                        f"{settings.mock_monitor_api}/api/v1/mock/service/{service}/metrics/error_rate",
+                    )
+                    err_resp.raise_for_status()
+                    err_data = err_resp.json()
+                    rt_resp = await client.get(
+                        f"{settings.mock_monitor_api}/api/v1/mock/service/{service}/metrics/tp99",
+                    )
+                    rt_resp.raise_for_status()
+                    rt_data = rt_resp.json()
+                    qps_resp = await client.get(
+                        f"{settings.mock_monitor_api}/api/v1/mock/service/{service}/metrics/qps",
+                    )
+                    qps_resp.raise_for_status()
+                    qps_data = qps_resp.json()
+
+                def _latest(data_points):
+                    if not data_points:
+                        return 0.0
+                    return data_points[-1].get("value", 0.0)
+
+                def _baseline(data_points):
+                    if not data_points:
+                        return 0.0
+                    values = [dp.get("value", 0.0) for dp in data_points]
+                    return sum(values) / len(values) if values else 0.0
+
+                failure_rate = _latest(err_data.get("data_points", []))
+                if failure_rate <= 1.0:
+                    failure_rate *= 100
+                avg_rt = _latest(rt_data.get("data_points", []))
+                baseline_rt = _baseline(rt_data.get("data_points", []))
+                call_volume = int(_latest(qps_data.get("data_points", [])))
+                baseline_volume = int(_baseline(qps_data.get("data_points", [])))
+                metrics = {
+                    "failure_rate_percent": failure_rate,
+                    "avg_rt_ms": avg_rt,
+                    "baseline_rt_ms": baseline_rt,
+                    "timeout_count": 0,
+                    "call_volume": call_volume,
+                    "baseline_volume": baseline_volume,
+                }
                 return {"metrics": metrics, "error": None}
 
             async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:

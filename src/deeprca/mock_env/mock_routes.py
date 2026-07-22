@@ -69,13 +69,19 @@ def create_mock_router() -> APIRouter:
         1. 重置模拟环境
         2. 应用故障注入
         3. 生成告警事件
-        4. 提交到 DeepRCA-Agent 分析
-        5. 等待分析完成
+        4. 通过 HTTP API 提交到 DeepRCA-Agent 分析
+        5. 轮询等待分析完成
         6. 对比预期根因
         7. 返回验证报告
         """
         if name not in SCENARIOS:
             return JSONResponse(status_code=404, content={"message": f"Scenario '{name}' not found"})
+
+        import asyncio
+
+        import httpx
+
+        from deeprca.config import get_settings
 
         scenario = SCENARIOS[name]
         # 1. 应用场景
@@ -83,34 +89,57 @@ def create_mock_router() -> APIRouter:
         # 2. 生成告警
         alert = sim.generate_alert(name)
 
-        # 3. 提交到 DeepRCA-Agent（通过内部 API 调用）
-        import asyncio
-        import uuid
+        # 3. 通过 HTTP API 提交分析（不再直接调用 graph）
+        settings = get_settings()
+        base_url = f"http://localhost:{settings.app_port}"
 
-        from deeprca.graph import build_coordinator_graph
+        try:
+            async with httpx.AsyncClient(timeout=settings.analysis_timeout) as client:
+                resp = await client.post(f"{base_url}/api/v1/analyze", json=alert)
+                resp.raise_for_status()
+                submit_result = resp.json()
+                trace_id = submit_result["trace_id"]
 
-        trace_id = f"mock-{name}-{uuid.uuid4().hex[:8]}"
+                # 4. 轮询等待分析完成
+                max_wait = settings.analysis_timeout
+                waited = 0
+                poll_interval = 2
+                final_status = "running"
+                while waited < max_wait:
+                    await asyncio.sleep(poll_interval)
+                    waited += poll_interval
+                    sresp = await client.get(f"{base_url}/api/v1/analyze/{trace_id}/status")
+                    if sresp.status_code == 200:
+                        sdata = sresp.json()
+                        final_status = sdata.get("status", "running")
+                        if final_status in ("completed", "failed"):
+                            break
 
-        initial_state = {
-            "alert": alert,
-            "task_plan": [],
-            "sub_agent_results": [],
-            "collected_evidence": None,
-            "root_cause": None,
-            "report": None,
-            "messages": [],
-            "trace_id": trace_id,
-            "start_time": alert["timestamp"],
-            "status": "running",
-            "related_services": [],
-            "degraded_mode": False,
-        }
+                # 5. 获取分析结果
+                rresp = await client.get(f"{base_url}/api/v1/analyze/{trace_id}/result")
+                if rresp.status_code != 200:
+                    return JSONResponse(
+                        status_code=500,
+                        content={
+                            "scenario": name,
+                            "status": "error",
+                            "trace_id": trace_id,
+                            "message": f"Failed to get result: HTTP {rresp.status_code}",
+                        },
+                    )
+                result_data = rresp.json()
+        except Exception as exc:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "scenario": name,
+                    "status": "error",
+                    "message": f"HTTP API call failed: {exc}",
+                },
+            )
 
-        graph = build_coordinator_graph()
-        final_state = await graph.ainvoke(initial_state)
-
-        # 4. 对比预期根因
-        root_cause = final_state.get("root_cause")
+        # 6. 对比预期根因
+        root_cause = result_data.get("root_cause")
         actual_conclusion = ""
         actual_confidence = 0.0
         if root_cause and isinstance(root_cause, dict):
@@ -134,7 +163,7 @@ def create_mock_router() -> APIRouter:
             "actual_confidence": actual_confidence,
             "expected_confidence_min": expected_min,
             "confidence_passed": actual_confidence >= expected_min,
-            "final_status": final_state.get("status"),
+            "final_status": final_status,
         }
 
     # ─────────────────────────────────────
@@ -344,6 +373,16 @@ def create_mock_router() -> APIRouter:
             end_time = now.strftime("%Y-%m-%dT%H:%M:%S+00:00")
         return sim.service.get_logs(name, start_time, end_time, level=level, keyword=keyword, limit=limit)
 
+    @router.get("/service/{name}/changes")
+    async def service_changes(name: str, time_window: int = 30):
+        """获取微服务最近变更记录。"""
+        return sim.service.get_changes(name, time_window)
+
+    @router.get("/service/{name}/alerts")
+    async def service_alerts(name: str, time_window: int = 30):
+        """获取微服务关联告警。"""
+        return sim.service.get_alerts(name, time_window)
+
     @router.post("/service/{name}/inject/timeout")
     async def service_inject_timeout(name: str, body: dict[str, Any]):
         return sim.service.inject_service_timeout(
@@ -381,3 +420,4 @@ def _semantic_match(actual: str, expected: str) -> bool:
         return False
     overlap = len(actual_words & expected_words) / len(expected_words)
     return overlap >= 0.3
+

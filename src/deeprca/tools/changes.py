@@ -4,6 +4,7 @@
 <table>
 <tr><th>版本</th><th>变更说明</th><th>关联</th></tr>
 <tr><td>0.1.0</td><td>初始创建</td><td>REQ: 20260713-总体架构, TECH: 04b §3.3</td></tr>
+<tr><td>0.2.0</td><td>Mock 模式改为 HTTP 调用 Mock API 获取场景感知数据</td><td>reviewer-fix-3</td></tr>
 </table>
 @author xianhuimeng
 """
@@ -14,7 +15,6 @@ import httpx
 from langchain_core.tools import tool
 
 from deeprca.config import get_settings
-from deeprca.tools.mock_data import mock_recent_changes as _mock_recent_changes
 
 
 @tool
@@ -35,14 +35,32 @@ async def query_recent_changes(
     """
     settings = get_settings()
 
-    # Mock 环境直接返回模拟数据
-    if settings.mock_env_enabled:
-        return _mock_recent_changes(service_name, time_range, change_type)
-
     # 将时间范围转为秒
     range_map = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800}
     time_window = range_map.get(time_range, 86400)
 
+    # Mock 模式：通过 Mock API 获取场景感知数据
+    if settings.mock_env_enabled:
+        try:
+            async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
+                resp = await client.get(
+                    f"{settings.mock_monitor_api}/api/v1/mock/service/{service_name}/changes",
+                    params={"time_window": time_window},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                changes = data.get("changes", [])
+                if change_type:
+                    changes = [c for c in changes if c.get("type") == change_type]
+                return {
+                    "service": service_name,
+                    "total": len(changes),
+                    "changes": changes,
+                }
+        except Exception as e:
+            return {"service": service_name, "total": 0, "changes": [], "error": str(e)}
+
+    # 非 Mock 模式（占位实现）
     params: dict = {
         "service_name": service_name,
         "time_window": time_window,
@@ -50,7 +68,6 @@ async def query_recent_changes(
     if change_type:
         params["change_type"] = change_type
 
-    # NOTE: 非 Mock 模式下的 HTTP 路径为占位实现，需对接真实变更系统时重新设计。
     try:
         async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
             resp = await client.get(

@@ -22,7 +22,6 @@ from langgraph.graph.state import CompiledStateGraph
 
 from deeprca.config import get_settings
 from deeprca.graph.subgraphs.base_expert import BaseExpertAgent
-from deeprca.graph.subgraphs.expert_mock_data import mock_redis_metrics
 from deeprca.models import SubAgentResult
 
 __all__ = ["RedisExpertAgent"]
@@ -80,7 +79,24 @@ class RedisExpertAgent(BaseExpertAgent):
             service = state.get("alert", {}).get("service_name", "")
 
             if settings.mock_env_enabled:
-                metrics = mock_redis_metrics(service)
+                # 通过 Mock API 获取场景感知数据（嵌套格式），转换为扁平格式
+                async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
+                    resp = await client.get(
+                        f"{settings.mock_monitor_api}/api/v1/mock/redis/redis-cluster-01/metrics",
+                    )
+                    resp.raise_for_status()
+                    raw = resp.json()
+                used_memory = raw.get("used_memory", {})
+                usage_ratio = used_memory.get("usage_ratio", 0.0)
+                hit_rate = raw.get("hit_rate", {})
+                clients = raw.get("connected_clients", {})
+                metrics = {
+                    "memory_usage_percent": round(usage_ratio * 100, 1) if usage_ratio <= 1 else usage_ratio,
+                    "hit_rate_percent": round(hit_rate.get("current", 1.0) * 100, 1),
+                    "connected_clients": clients.get("current", 0),
+                    "max_clients": clients.get("max", 1),
+                    "big_keys_count": 0,  # get_metrics 不返回 bigkeys，默认 0
+                }
                 return {"metrics": metrics, "error": None}
 
             async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:

@@ -22,7 +22,6 @@ from langgraph.graph.state import CompiledStateGraph
 
 from deeprca.config import get_settings
 from deeprca.graph.subgraphs.base_expert import BaseExpertAgent
-from deeprca.graph.subgraphs.expert_mock_data import mock_kafka_metrics
 from deeprca.models import SubAgentResult
 
 __all__ = ["MafkaExpertAgent"]
@@ -80,7 +79,29 @@ class MafkaExpertAgent(BaseExpertAgent):
             service = state.get("alert", {}).get("service_name", "")
 
             if settings.mock_env_enabled:
-                metrics = mock_kafka_metrics(service)
+                # 通过 Mock API 获取场景感知数据
+                async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
+                    resp = await client.get(
+                        f"{settings.mock_monitor_api}/api/v1/mock/kafka/kafka-prod-01/metrics",
+                    )
+                    resp.raise_for_status()
+                    raw = resp.json()
+                    metrics = {
+                        "consumer_lag": raw.get("total_lag", 0),
+                        "produce_rate": raw.get("produce_rate", 0.0),
+                        "consume_rate": raw.get("consume_rate", 0.0),
+                        "rebalance_count": 0,  # get_metrics 不返回 rebalance
+                    }
+                    # 尝试获取 rebalance 信息
+                    try:
+                        lag_resp = await client.get(
+                            f"{settings.mock_monitor_api}/api/v1/mock/kafka/kafka-prod-01/topics/order-events/lag",
+                        )
+                        if lag_resp.status_code == 200:
+                            lag_data = lag_resp.json()
+                            metrics["rebalance_count"] = lag_data.get("rebalance_events", 0)
+                    except Exception:
+                        pass
                 return {"metrics": metrics, "error": None}
 
             async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
@@ -200,3 +221,4 @@ class MafkaExpertAgent(BaseExpertAgent):
                 error="子图执行未返回结果",
             )
         return result
+

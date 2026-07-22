@@ -4,6 +4,7 @@
 <table>
 <tr><th>版本</th><th>变更说明</th><th>关联</th></tr>
 <tr><td>0.1.0</td><td>初始创建</td><td>REQ: 20260713-总体架构, TECH: 04b §3.3</td></tr>
+<tr><td>0.2.0</td><td>Mock 模式改为 HTTP 调用 Mock API 获取场景感知数据</td><td>reviewer-fix-3</td></tr>
 </table>
 @author xianhuimeng
 """
@@ -14,7 +15,6 @@ import httpx
 from langchain_core.tools import tool
 
 from deeprca.config import get_settings
-from deeprca.tools.mock_data import mock_metrics as _mock_metrics
 
 
 @tool
@@ -41,10 +41,20 @@ async def query_metrics(
     """
     settings = get_settings()
 
-    # Mock 环境直接返回模拟数据
+    # Mock 模式：通过 Mock API 获取场景感知数据
     if settings.mock_env_enabled:
-        return _mock_metrics(service_name, metric_name, start_time, end_time, granularity, labels)
+        try:
+            async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
+                resp = await client.get(
+                    f"{settings.mock_monitor_api}/api/v1/mock/service/{service_name}/metrics/{metric_name}",
+                    params={"start_time": start_time, "end_time": end_time},
+                )
+                resp.raise_for_status()
+                return resp.json()
+        except Exception as e:
+            return {"service": service_name, "metric": metric_name, "data_points": [], "aggregation": {}, "error": str(e)}
 
+    # 非 Mock 模式（占位实现，需对接真实监控系统时重新设计）
     params: dict = {
         "service_name": service_name,
         "metric_name": metric_name,
@@ -55,8 +65,6 @@ async def query_metrics(
     if labels:
         params["labels"] = labels
 
-    # NOTE: 非 Mock 模式下的 HTTP 路径为占位实现，需对接真实监控系统时重新设计。
-    # 当前路径 {mock_monitor_api}/api/v1/metrics 与 Mock 路由不一致，仅 mock_env_enabled=True 时使用。
     try:
         async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
             resp = await client.get(
