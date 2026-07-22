@@ -403,6 +403,7 @@ curl -X POST http://localhost:8000/api/v1/analyze \
     "description": "order-service 错误率突增至 15%",
     "labels": {"cluster": "prod-cluster-01", "env": "production"}
   }' | docker exec -i deeprca-agent python -m json.tool
+```
 
 预期响应（202 Accepted）：
 
@@ -767,6 +768,7 @@ services:
 |------|--------|------|
 | `APP_ENV` | development | 运行环境 |
 | `APP_PORT` | 8000 | Agent 服务端口 |
+| `APP_EXTERNAL_HOST` | localhost | 外部访问地址（生成反馈 URL） |
 | `LLM_API_BASE` | http://localhost:11434/v1 | LLM API 地址 |
 | `LLM_API_KEY` | (空) | LLM API Key |
 | `LLM_MODEL` | gpt-4o | LLM 模型名 |

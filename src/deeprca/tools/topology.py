@@ -45,6 +45,7 @@ async def query_topology(
         "direction": direction,
     }
 
+    # NOTE: 非 Mock 模式下的 HTTP 路径为占位实现，需对接真实拓扑系统时重新设计。
     try:
         async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
             resp = await client.get(

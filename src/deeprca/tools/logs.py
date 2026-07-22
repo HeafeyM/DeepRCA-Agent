@@ -55,6 +55,7 @@ async def query_error_logs(
     if keyword:
         params["keyword"] = keyword
 
+    # NOTE: 非 Mock 模式下的 HTTP 路径为占位实现，需对接真实监控系统时重新设计。
     try:
         async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
             resp = await client.get(

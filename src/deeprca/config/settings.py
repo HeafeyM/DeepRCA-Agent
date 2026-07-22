@@ -60,9 +60,11 @@ class Settings(BaseSettings):
     # Mock Environment
     mock_env_enabled: bool = Field(default=True, description="是否启用 Mock 环境")
     mock_k8s_api: str = Field(default="http://localhost:8001", description="Mock K8s API")
-    mock_monitor_api: str = Field(default="http://localhost:8002", description="Mock 监控 API")
-    mock_log_api: str = Field(default="http://localhost:8003", description="Mock 日志 API")
-    mock_change_api: str = Field(default="http://localhost:8004", description="Mock 变更 API")
+    # 以下三个配置当前在 mock_env_enabled=True 时不被使用（工具层直接返回 mock_data），
+    # 仅在对接真实监控系统时才会发起 HTTP 请求。统一指向 8001 以避免端口混淆。
+    mock_monitor_api: str = Field(default="http://localhost:8001", description="Mock 监控 API（当前未使用，mock_env_enabled 优先）")
+    mock_log_api: str = Field(default="http://localhost:8001", description="Mock 日志 API（当前未使用，mock_env_enabled 优先）")
+    mock_change_api: str = Field(default="http://localhost:8001", description="Mock 变更 API（当前未使用，mock_env_enabled 优先）")
 
 
 @lru_cache

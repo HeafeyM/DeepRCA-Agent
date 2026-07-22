@@ -270,6 +270,13 @@ def create_mock_router() -> APIRouter:
             qps=body.get("qps", 15000),
         )
 
+    @router.post("/redis/{instance}/inject/bigkey")
+    async def redis_inject_bigkey(instance: str, body: dict[str, Any]):
+        return sim.redis.inject_bigkey(
+            key=body.get("key", "order:cache:batch"),
+            size_mb=body.get("size_mb", 15),
+        )
+
     # ─────────────────────────────────────
     # Kafka
     # ─────────────────────────────────────

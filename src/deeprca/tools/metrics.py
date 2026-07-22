@@ -55,6 +55,8 @@ async def query_metrics(
     if labels:
         params["labels"] = labels
 
+    # NOTE: 非 Mock 模式下的 HTTP 路径为占位实现，需对接真实监控系统时重新设计。
+    # 当前路径 {mock_monitor_api}/api/v1/metrics 与 Mock 路由不一致，仅 mock_env_enabled=True 时使用。
     try:
         async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
             resp = await client.get(
