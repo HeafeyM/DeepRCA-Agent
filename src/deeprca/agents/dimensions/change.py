@@ -28,13 +28,10 @@ async def analyze_change(alert: dict) -> SubAgentResult:
     service_name = alert.get("service_name", "")
     timestamp_str = alert.get("timestamp", "")
 
-    # 构造时间窗口：告警前 30 分钟到告警时间
-    time_window = 1800  # 30 分钟
-
     try:
         result = await query_recent_changes.ainvoke({
             "service_name": service_name,
-            "time_window": time_window,
+            "time_range": "30m",
         })
 
         if result.get("error"):
@@ -51,7 +48,7 @@ async def analyze_change(alert: dict) -> SubAgentResult:
         for ch in changes:
             findings.append({
                 "type": ch.get("type", "deployment"),
-                "time": ch.get("time", ""),
+                "time": ch.get("timestamp", ch.get("time", "")),
                 "desc": ch.get("description", ch.get("desc", "")),
                 "operator": ch.get("operator", ""),
             })

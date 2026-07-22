@@ -25,12 +25,11 @@ async def analyze_problem(alert: dict) -> SubAgentResult:
     """
     service_name = alert.get("service_name", "")
     timestamp_str = alert.get("timestamp", "")
-    time_window = 1800  # 30 分钟
 
     try:
         result = await query_related_alerts.ainvoke({
             "service_name": service_name,
-            "time_window": time_window,
+            "time_range": "30m",
         })
 
         if result.get("error"):
@@ -42,7 +41,7 @@ async def analyze_problem(alert: dict) -> SubAgentResult:
                 timestamp=timestamp_str,
             )
 
-        related_alerts = result.get("alerts", [])
+        related_alerts = result.get("related_alerts", [])
         findings: list[dict] = []
         evidence: list[str] = []
 

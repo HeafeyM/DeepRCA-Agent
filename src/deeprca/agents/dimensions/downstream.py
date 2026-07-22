@@ -72,9 +72,20 @@ async def analyze_downstream(alert: dict) -> SubAgentResult:
         elif traces:
             for trace in traces:
                 # 检测慢调用和错误调用
-                duration = trace.get("duration", 0)
-                status = trace.get("status", "")
-                span_name = trace.get("span_name", trace.get("service", ""))
+                duration = trace.get("duration_ms", trace.get("duration", 0))
+                # trace 顶层没有 status，从 spans 中聚合
+                spans = trace.get("spans", [])
+                span_status = "error" if any(
+                    s.get("status", "").upper() in ("ERROR", "FAILED", "TIMEOUT")
+                    for s in spans
+                ) else "success"
+                span_name = trace.get("trace_id", "")
+                if spans:
+                    # 取第一个非本服务的 span 作为下游调用标识
+                    for s in spans:
+                        if s.get("service", "") != service_name:
+                            span_name = s.get("service", span_name)
+                            break
 
                 if isinstance(duration, (int, float)) and duration > 1000:  # 超过 1 秒
                     findings.append({
@@ -85,14 +96,14 @@ async def analyze_downstream(alert: dict) -> SubAgentResult:
                     })
                     evidence.append(f"下游调用 {span_name} 耗时 {duration}ms")
 
-                if status and status.upper() in ("ERROR", "FAILED", "TIMEOUT"):
+                if span_status.upper() in ("ERROR", "FAILED", "TIMEOUT"):
                     findings.append({
                         "type": "downstream_call_error",
                         "service": span_name,
-                        "desc": f"下游调用错误: {span_name} 状态 {status}",
+                        "desc": f"下游调用错误: {span_name} 状态 {span_status}",
                         "severity": "high",
                     })
-                    evidence.append(f"下游调用 {span_name} 状态异常: {status}")
+                    evidence.append(f"下游调用 {span_name} 状态异常: {span_status}")
 
             if traces:
                 evidence.append(f"查询到 {len(traces)} 条调用链记录")

@@ -112,3 +112,7 @@ redis-data/
 
 # 用户上传文件
 chat_uploads/
+
+# Node.js 依赖与临时工作目录
+node_modules/
+md-to-pdf-work/

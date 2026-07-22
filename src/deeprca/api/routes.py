@@ -126,7 +126,8 @@ def create_router() -> APIRouter:
 
         # PRD-02 §6.1: 返回 websocket_url
         settings = get_settings()
-        ws_url = f"ws://{settings.app_host}:{settings.app_port}/api/v1/analyze/{trace_id}/stream"
+        # 使用请求头中的 Host 或 localhost，而非 app_host (0.0.0.0 不可访问)
+        ws_url = f"ws://localhost:{settings.app_port}/api/v1/analyze/{trace_id}/stream"
 
         return JSONResponse(
             status_code=202,

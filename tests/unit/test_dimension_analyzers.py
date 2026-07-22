@@ -42,7 +42,7 @@ class TestChangeAnalyzer:
             "changes": [
                 {
                     "type": "deployment",
-                    "time": "2026-07-10T13:40:00Z",
+                    "timestamp": "2026-07-10T13:40:00Z",
                     "description": "发布新版本 v2.3.0",
                     "operator": "xianhuimeng",
                 }
@@ -239,7 +239,14 @@ class TestDownstreamAnalyzer:
         """下游调用超时 > 1000ms → 发现 slow_downstream_call。"""
         mock_trace = {
             "traces": [
-                {"span_name": "db-query", "duration": 1500, "status": "OK"},
+                {
+                    "trace_id": "trace-0001",
+                    "spans": [
+                        {"service": "svc", "operation": "handle_request", "duration_ms": 100, "status": "success"},
+                        {"service": "db-query", "operation": "SELECT", "duration_ms": 1500, "status": "success"},
+                    ],
+                    "duration_ms": 1600,
+                },
             ]
         }
         mock_topo = {"downstream": [{"service": "mysql-prod-01"}]}
@@ -263,7 +270,14 @@ class TestDownstreamAnalyzer:
         """下游调用状态 ERROR → 发现 downstream_call_error。"""
         mock_trace = {
             "traces": [
-                {"span_name": "rpc-call", "duration": 200, "status": "ERROR"},
+                {
+                    "trace_id": "trace-0002",
+                    "spans": [
+                        {"service": "svc", "operation": "handle_request", "duration_ms": 100, "status": "success"},
+                        {"service": "rpc-call", "operation": "RPC", "duration_ms": 200, "status": "error"},
+                    ],
+                    "duration_ms": 300,
+                },
             ]
         }
         mock_topo = {"downstream": []}
@@ -355,7 +369,7 @@ class TestProblemAnalyzer:
     async def test_cascade_alerts(self):
         """4+ 条关联告警 → 置信度 ≥ 0.9。"""
         mock_result = {
-            "alerts": [
+            "related_alerts": [
                 {"alert_id": f"A00{i}", "service_name": f"svc-{i}", "description": f"alert {i}"}
                 for i in range(5)
             ]
@@ -376,7 +390,7 @@ class TestProblemAnalyzer:
     async def test_no_related_alerts(self):
         """无关联告警 → 置信度 ≤ 0.1。"""
         with patch("deeprca.agents.dimensions.problem.query_related_alerts") as mock_tool:
-            mock_tool.ainvoke = AsyncMock(return_value={"alerts": []})
+            mock_tool.ainvoke = AsyncMock(return_value={"related_alerts": []})
             result = await analyze_problem({
                 "service_name": "svc",
                 "timestamp": "2026-07-10T14:00:00Z",
@@ -388,7 +402,7 @@ class TestProblemAnalyzer:
     async def test_other_service_alerts(self):
         """发现其他服务告警 → 证据含级联提示。"""
         mock_result = {
-            "alerts": [
+            "related_alerts": [
                 {"alert_id": "A001", "service_name": "other-svc", "description": "OOM"},
             ]
         }

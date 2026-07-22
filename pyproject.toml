@@ -21,6 +21,9 @@ dependencies = [
     "langchain-openai>=0.1.0",
     "redis>=5.0.0",
     "kafka-python>=2.0.0",
+    "aiokafka>=0.11.0",
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
 ]
 
 [project.optional-dependencies]
