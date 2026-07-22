@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import sys
+from importlib.metadata import version as pkg_version
 
 import httpx
 from fastapi import FastAPI
@@ -23,6 +24,12 @@ from deeprca.mock_env import create_mock_router
 
 __all__ = ["create_app", "app"]
 
+# 从 pyproject.toml [project].version 动态读取，避免手动同步
+try:
+    _VERSION = pkg_version("deeprca-agent")
+except Exception:
+    _VERSION = "0.1.0"  # fallback（开发模式 pip install -e . 时可能未安装）
+
 
 def create_app() -> FastAPI:
     """创建 FastAPI 应用实例。"""
@@ -31,7 +38,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="DeepRCA-Agent",
         description="LLM Agent 驱动的故障诊断智能体系统",
-        version="0.3.0",
+        version=_VERSION,
     )
 
     # --- Health Check (PRD-06 §9.1: 检查 Redis + Mock 连通性) --- #
@@ -39,16 +46,17 @@ def create_app() -> FastAPI:
     async def health_check():
         checks = {}
 
-        # Redis 连通性
+        # Redis 连通性（使用异步客户端，避免阻塞事件循环）
         try:
-            import redis
-            r = redis.Redis(
+            import redis.asyncio as aioredis
+            r = aioredis.Redis(
                 host=settings.redis_host,
                 port=settings.redis_port,
                 db=settings.redis_db,
                 password=settings.redis_password or None,
             )
-            r.ping()
+            await r.ping()
+            await r.aclose()
             checks["redis"] = "healthy"
         except Exception:
             checks["redis"] = "unhealthy"
@@ -65,7 +73,7 @@ def create_app() -> FastAPI:
         all_healthy = all(v == "healthy" for v in checks.values())
         return {
             "status": "healthy" if all_healthy else "degraded",
-            "version": "0.3.0",
+            "version": _VERSION,
             "env": settings.app_env,
             "checks": checks,
         }

@@ -228,10 +228,8 @@ def create_router() -> APIRouter:
         # 启动后台任务
         asyncio.create_task(_run_analysis())
 
-        # PRD-02 §6.1: 返回 websocket_url
-        settings = get_settings()
-        # 使用请求头中的 Host 或 localhost，而非 app_host (0.0.0.0 不可访问)
-        ws_url = f"ws://localhost:{settings.app_port}/api/v1/analyze/{trace_id}/stream"
+        # PRD-02 §6.1: 返回 websocket_url（使用外部可访问地址，而非 app_host 的 0.0.0.0）
+        ws_url = f"ws://{settings.app_external_host}:{settings.app_port}/api/v1/analyze/{trace_id}/stream"
 
         return JSONResponse(
             status_code=202,
@@ -329,12 +327,12 @@ def create_router() -> APIRouter:
     async def submit_feedback(feedback: dict, token: str = ""):
         """提交满意度反馈。
 
-        示例:
-        {
-          "trace_id": "trace-xxx",
-          "satisfaction": 5,
-          "comment": "准确定位了问题根因"
-        }
+        支持的字段:
+        - trace_id (必需): 分析追踪 ID
+        - satisfaction (必需): 满意度评分 1-5
+        - root_cause_correct (可选): 根因是否正确 (bool)
+        - comment (可选): 评论
+        - feedback_token (可选): 反馈 token（也可通过 URL query string 传入）
         """
         trace_id = feedback.get("trace_id", "")
         # 如果 URL 中携带 token，回填到反馈记录

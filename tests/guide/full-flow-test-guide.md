@@ -322,13 +322,18 @@ curl -X POST http://localhost:8000/api/v1/analyze \
                                               │    ↓            │
                                               │  dispatcher     │
                                               │    ↓            │
-                                              │  collector      │
-                                              │  (6维并行采集)  │
-                                              │    ↓            │
-                                              │  root_cause     │
-                                              │  (L3 根因定位)  │
-                                              │    ↓            │
-                                              │  reporter       │
+                                              │  check_timeout  │
+                                              │  ┌──────┴──────┐│
+                                              │  │normal  timeout│
+                                              │  ↓         ↓   │
+                                              │  collector root_cause│
+                                              │  (6维并行)  (降级)│
+                                              │  └──────┬──────┘│
+                                              │         ↓       │
+                                              │     root_cause   │
+                                              │    (L3 根因定位) │
+                                              │         ↓       │
+                                              │     reporter     │
                                               └────────┬────────┘
                                                        │
                                                        ▼
@@ -456,7 +461,7 @@ curl http://localhost:8000/api/v1/analyze/$TRACE_ID/result | docker exec -i deep
     "summary": "...",
     "root_cause": "...",
     "confidence": 0.9,
-    "evidence_chain": [...],
+    "key_evidence": [...],
     "suggestions": [...],
     "satisfaction_url": "..."
   },
@@ -768,17 +773,29 @@ services:
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `APP_ENV` | development | 运行环境 |
+| `APP_HOST` | 0.0.0.0 | 监听地址（Docker 内无需修改） |
 | `APP_PORT` | 8000 | Agent 服务端口 |
-| `APP_EXTERNAL_HOST` | localhost | 外部访问地址（生成反馈 URL） |
-| `AGENT_URL` | http://localhost:8000 | Agent 服务 URL |
+| `APP_EXTERNAL_HOST` | localhost | 外部访问地址（生成反馈/WebSocket URL） |
+| `AGENT_URL` | http://localhost:8000 | Agent 服务 URL（Mock 容器内调用时使用） |
+| `LOG_LEVEL` | INFO | 日志级别 |
 | `LLM_API_BASE` | http://localhost:11434/v1 | LLM API 地址 |
 | `LLM_API_KEY` | (空) | LLM API Key |
 | `LLM_MODEL` | gpt-4o | LLM 模型名 |
+| `LLM_MAX_TOKENS` | 4096 | LLM 最大 token 数 |
+| `LLM_TIMEOUT` | 30 | LLM 调用超时（秒） |
 | `REDIS_HOST` | localhost | Redis 地址 |
 | `REDIS_PORT` | 6379 | Redis 端口 |
-| `MOCK_ENV_ENABLED` | true | 是否启用 Mock 模式 |
-| `MOCK_K8S_API` | http://localhost:8001 | Mock K8s API 地址 |
+| `REDIS_DB` | 0 | Redis 数据库编号 |
+| `REDIS_PASSWORD` | (空) | Redis 密码 |
+| `KAFKA_BOOTSTRAP_SERVERS` | localhost:9092 | Kafka 地址（仅生产环境使用） |
+| `KAFKA_FEEDBACK_TOPIC` | deeprca-feedback | 反馈推送 Kafka topic |
 | `ANALYSIS_TIMEOUT` | 60 | 分析超时（秒） |
 | `TOOL_CALL_TIMEOUT` | 10 | 工具调用超时（秒） |
+| `MAX_CONCURRENT_TASKS` | 10 | 最大并发任务数 |
+| `MOCK_ENV_ENABLED` | true | 是否启用 Mock 模式 |
+| `MOCK_K8S_API` | http://localhost:8001 | Mock K8s API 地址 |
+| `MOCK_MONITOR_API` | http://localhost:8001 | Mock 监控 API 地址（当前未使用，mock_env_enabled 优先） |
+| `MOCK_LOG_API` | http://localhost:8001 | Mock 日志 API 地址（当前未使用，mock_env_enabled 优先） |
+| `MOCK_CHANGE_API` | http://localhost:8001 | Mock 变更 API 地址（当前未使用，mock_env_enabled 优先） |
 
 
