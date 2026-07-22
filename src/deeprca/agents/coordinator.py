@@ -734,5 +734,10 @@ def check_timeout(state: DeepRCAState) -> str:
     return "normal"
 
 
-# 用于类型提示的导入
+# ─────────────────────────────────────────────
+# 运行时类型导入（必须在模块级别，不能使用 TYPE_CHECKING guard）
+# 原因 1: LangGraph 的 add_conditional_edges 通过 get_type_hints() 在运行时
+#         解析 check_timeout 的参数类型 DeepRCAState，TYPE_CHECKING 会导致 NameError。
+# 原因 2: 放在文件底部避免循环导入（deeprca.graph → coordinator → deeprca.graph.state）。
+# ─────────────────────────────────────────────
 from deeprca.graph.state import DeepRCAState  # noqa: E402

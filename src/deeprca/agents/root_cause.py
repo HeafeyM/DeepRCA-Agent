@@ -15,8 +15,6 @@ import json
 import logging
 import time
 
-import numpy as np
-
 from deeprca.config.settings import get_settings
 from deeprca.detection.comparator import MultiDimensionComparator
 from deeprca.detection.filters import ExpertRuleEngine, MetricFilter, NoiseFilter

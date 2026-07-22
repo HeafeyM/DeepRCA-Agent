@@ -295,14 +295,29 @@ curl -X POST http://localhost:8000/api/v1/analyze \
   -d '{}'
 ```
 
-预期响应：
+预期响应（Pydantic 校验失败，FastAPI 标准 422 格式）：
 
 ```json
 {
-  "message": "必需字段缺失: alert_id, service_name, alert_type, severity, timestamp",
-  "missing_fields": ["alert_id", "service_name", "alert_type", "severity", "timestamp"]
+  "message": "告警格式校验失败",
+  "detail": [
+    {
+      "type": "missing",
+      "loc": ["body", "service_name"],
+      "msg": "Field required",
+      "input": {}
+    },
+    {
+      "type": "missing",
+      "loc": ["body", "alert_type"],
+      "msg": "Field required",
+      "input": {}
+    }
+  ]
 }
 ```
+
+> **说明**: `detail` 为数组，每个元素包含 `type`（错误类型）、`loc`（字段路径）、`msg`（错误消息）。`alert_type` 受 `AlertType` 枚举约束，非法值（如 `"abc"`）会返回 `value_error`；`severity` 受 `AlertSeverity` 枚举约束，非法值（如 `"P5"`）同样会被拒绝。
 
 ---
 

@@ -55,11 +55,14 @@ services:
       - LLM_API_BASE=${LLM_API_BASE:-http://localhost:11434/v1}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_MODEL=${LLM_MODEL:-gpt-4o}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-4096}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-30}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_DB=0
       # Kafka 默认值指向 localhost:9092；仅当已部署外部 Kafka 时才覆盖为 kafka:9092 等地址。
       - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-localhost:9092}
+      - KAFKA_FEEDBACK_TOPIC=${KAFKA_FEEDBACK_TOPIC:-deeprca-feedback}
       - MOCK_ENV_ENABLED=true
       - MOCK_K8S_API=http://mock-env:8001
       - MOCK_MONITOR_API=http://mock-env:8001
