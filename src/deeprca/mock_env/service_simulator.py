@@ -150,18 +150,33 @@ class MicroserviceSimulator:
         }
 
     def _scenario_metric_value(self, scenario: str, metric_name: str, lo: float, hi: float) -> float:
-        """根据场景生成异常指标值。"""
-        if scenario == "pod_crash" and metric_name == "error_rate":
+        """根据场景生成异常指标值。
+
+        支持 alert_simulator 与 service_simulator 之间的场景名映射，
+        确保端到端场景能够触发预期的指标异常。
+        """
+        # 场景名映射：alert_simulator 的预设名 -> service 侧识别的场景名
+        scenario_map = {
+            "oom_restart": "pod_crash",
+            "change_induced_failure": "change_induced",
+            "redis_memory_pressure": "redis_timeout",
+            "traffic_spike_saturation": "traffic_spike",
+            "rpc_circuit_breaker": "db_slow_query",  # 借延迟场景表达 RPC 超时
+            "multi_dimension_anomaly": "pod_crash",  # 多维度异常以 pod_crash 为主
+        }
+        mapped = scenario_map.get(scenario, scenario)
+
+        if mapped == "pod_crash" and metric_name == "error_rate":
             return round(random.uniform(10, 20), 2)
-        elif scenario == "pod_crash" and metric_name == "cpu_usage":
+        elif mapped == "pod_crash" and metric_name == "cpu_usage":
             return round(random.uniform(85, 98), 1)
-        elif scenario == "db_slow_query" and metric_name == "tp99":
+        elif mapped == "db_slow_query" and metric_name == "tp99":
             return round(random.uniform(800, 2000), 2)
-        elif scenario == "redis_timeout" and metric_name == "tp99":
+        elif mapped == "redis_timeout" and metric_name == "tp99":
             return round(random.uniform(500, 1500), 2)
-        elif scenario == "traffic_spike" and metric_name == "qps":
+        elif mapped == "traffic_spike" and metric_name == "qps":
             return round(random.uniform(3000, 5000), 2)
-        elif scenario == "kafka_lag" and metric_name == "error_rate":
+        elif mapped == "kafka_lag" and metric_name == "error_rate":
             return round(random.uniform(5, 15), 2)
         return round(random.uniform(lo, hi), 2)
 
@@ -186,12 +201,22 @@ class MicroserviceSimulator:
                 "Health check failed for {svc}",
                 "java.net.ConnectException: Connection refused",
             ],
+            "oom_restart": [
+                "java.lang.OutOfMemoryError: Java heap space",
+                "Pod {pod} OOMKilled (exit code 137), restarting...",
+                "CrashLoopBackOff: backoff restarting failed container",
+            ],
             "db_slow_query": [
                 "SQL execution timeout after 3000ms: SELECT * FROM orders WHERE...",
                 "HikariPool-1 - Connection is not available, request timed out",
                 "Deadlock found when trying to get lock; try restarting transaction",
             ],
             "redis_timeout": [
+                "Redis command timeout: GET user:session:*",
+                "JedisConnectionException: Could not get a resource from the pool",
+                "Redis pipeline execution failed: timeout",
+            ],
+            "redis_memory_pressure": [
                 "Redis command timeout: GET user:session:*",
                 "JedisConnectionException: Could not get a resource from the pool",
                 "Redis pipeline execution failed: timeout",
@@ -206,14 +231,48 @@ class MicroserviceSimulator:
                 "Failed to bind properties under 'spring.datasource.url'",
                 "Bean creation exception: OrderController",
             ],
+            "change_induced": [
+                "HikariPool-1 - Connection is not available, request timed out",
+                "Connection pool exhausted: active=180, max=200",
+            ],
+            "change_induced_failure": [
+                "HikariPool-1 - Connection is not available, request timed out",
+                "Connection pool exhausted: active=180, max=200",
+            ],
             "traffic_spike": [
                 "Request queue full, rejecting connections",
                 "Rate limit exceeded for {svc}",
                 "Thread pool exhausted, max=200, active=200",
             ],
+            "traffic_spike_saturation": [
+                "Request queue full, rejecting connections",
+                "Rate limit exceeded for {svc}",
+                "Thread pool exhausted, max=200, active=200",
+            ],
+            "rpc_circuit_breaker": [
+                "Circuit breaker opened for payment-service",
+                "Connection refused to payment-service",
+                "Request timeout after 1000ms: payment-service",
+            ],
+            "multi_dimension_anomaly": [
+                "SQL execution timeout after 3000ms: SELECT * FROM orders JOIN...",
+                "Redis command timeout: GET user:session:*",
+                "Pod {pod} CrashLoopBackOff, restarting...",
+            ],
         }
 
-        templates = log_templates.get(scenario, [
+        # 场景名映射后选择模板
+        scenario_map = {
+            "oom_restart": "oom_restart",
+            "change_induced_failure": "change_induced_failure",
+            "redis_memory_pressure": "redis_memory_pressure",
+            "traffic_spike_saturation": "traffic_spike_saturation",
+            "rpc_circuit_breaker": "rpc_circuit_breaker",
+            "multi_dimension_anomaly": "multi_dimension_anomaly",
+        }
+        mapped = scenario_map.get(scenario, scenario)
+
+        templates = log_templates.get(mapped, [
             "Unexpected error in {svc}",
             "Request processing failed",
             "Service unavailable: {svc}",
@@ -356,7 +415,13 @@ class MicroserviceSimulator:
         now = datetime.now(timezone.utc)
         changes: list[dict] = []
 
-        if scenario == "deployment_failure":
+        # 支持 alert_simulator 与 service_simulator 之间的场景名映射
+        scenario_map = {
+            "change_induced_failure": "change_induced",
+        }
+        mapped = scenario_map.get(scenario, scenario)
+
+        if mapped == "deployment_failure":
             changes.append({
                 "change_id": f"chg-{random.randint(10000, 99999)}",
                 "service": service_name,
@@ -368,7 +433,7 @@ class MicroserviceSimulator:
                 "previous_version": "v1.2.3",
                 "risk_level": "high",
             })
-        elif scenario == "change_induced":
+        elif mapped == "change_induced":
             changes.append({
                 "change_id": f"chg-{random.randint(10000, 99999)}",
                 "service": service_name,

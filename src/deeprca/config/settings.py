@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     app_host: str = Field(default="0.0.0.0", description="监听地址")
     app_port: int = Field(default=8000, description="监听端口")
     app_external_host: str = Field(default="localhost", description="外部访问地址（用于生成反馈/通知 URL）")
+    agent_url: str = Field(default="http://localhost:8000", description="Agent 服务访问地址（Mock容器内调用时使用）")
     log_level: str = Field(default="INFO", description="日志级别")
 
     # LLM

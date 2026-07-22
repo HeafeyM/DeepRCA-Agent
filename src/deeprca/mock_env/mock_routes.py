@@ -91,7 +91,7 @@ def create_mock_router() -> APIRouter:
 
         # 3. 通过 HTTP API 提交分析（不再直接调用 graph）
         settings = get_settings()
-        base_url = f"http://localhost:{settings.app_port}"
+        base_url = settings.agent_url.rstrip("/")
 
         try:
             async with httpx.AsyncClient(timeout=settings.analysis_timeout) as client:
@@ -420,4 +420,3 @@ def _semantic_match(actual: str, expected: str) -> bool:
         return False
     overlap = len(actual_words & expected_words) / len(expected_words)
     return overlap >= 0.3
-

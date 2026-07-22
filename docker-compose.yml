@@ -58,7 +58,8 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_DB=0
-      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      # Kafka 默认值指向 localhost:9092；仅当已部署外部 Kafka 时才覆盖为 kafka:9092 等地址。
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS:-localhost:9092}
       - MOCK_ENV_ENABLED=true
       - MOCK_K8S_API=http://mock-env:8001
       - MOCK_MONITOR_API=http://mock-env:8001
@@ -95,6 +96,7 @@ services:
       - "8001:8001"
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - AGENT_URL=http://deeprca-agent:8000
     volumes:
       - deeprca-logs:/app/logs
     networks:

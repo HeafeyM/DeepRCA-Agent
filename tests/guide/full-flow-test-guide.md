@@ -94,7 +94,7 @@ LLM_MODEL=qwen2.5:7b
 
 ### 方式 C：无 LLM 模式（降级模式）
 
-如果不配置有效 LLM，Agent 会自动降级到规则引擎模式（`degraded_mode=True`），仅使用统计学算法和专家规则 R001–R008 进行根因定位，不调用 LLM。
+如果不配置有效 LLM，Agent 会在 LLM 调用失败时自动降级到规则引擎模式（`degraded_mode=True`），仅使用统计学算法和专家规则 R001–R008 进行根因定位，不调用 LLM。
 
 ```env
 LLM_API_BASE=http://localhost:11434/v1
@@ -352,7 +352,7 @@ curl -X POST "http://localhost:8001/api/v1/mock/scenarios/db_slave_delay_timeout
 {
   "scenario": "db_slave_delay_timeout",
   "status": "passed",
-  "trace_id": "mock-db_slave_delay_timeout-xxxxxxxx",
+  "trace_id": "trace-a1b2c3d4e5f6",
   "actual_root_cause": "数据库主从延迟导致 order-service 查询超时",
   "expected_root_cause": "数据库主从延迟导致 order-service 查询超时",
   "root_cause_matched": true,
@@ -484,6 +484,7 @@ curl -X POST http://localhost:8000/api/v1/feedback \
     "root_cause_correct": true,
     "comment": "分析准确，根因定位正确"
   }' | docker exec -i deeprca-agent python -m json.tool
+```
 
 ### 6.4 逐场景执行所有 8 个场景
 
@@ -769,6 +770,7 @@ services:
 | `APP_ENV` | development | 运行环境 |
 | `APP_PORT` | 8000 | Agent 服务端口 |
 | `APP_EXTERNAL_HOST` | localhost | 外部访问地址（生成反馈 URL） |
+| `AGENT_URL` | http://localhost:8000 | Agent 服务 URL |
 | `LLM_API_BASE` | http://localhost:11434/v1 | LLM API 地址 |
 | `LLM_API_KEY` | (空) | LLM API Key |
 | `LLM_MODEL` | gpt-4o | LLM 模型名 |
@@ -778,3 +780,5 @@ services:
 | `MOCK_K8S_API` | http://localhost:8001 | Mock K8s API 地址 |
 | `ANALYSIS_TIMEOUT` | 60 | 分析超时（秒） |
 | `TOOL_CALL_TIMEOUT` | 10 | 工具调用超时（秒） |
+
+

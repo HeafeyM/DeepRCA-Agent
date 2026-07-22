@@ -257,10 +257,13 @@ def create_router() -> APIRouter:
 
         # PRD-02 §6.2: 返回进度信息（基于实际分析阶段动态计算）
         status = record["status"]
-        total_stages = 7  # intake + planner + dispatcher + 6维采集 + root_cause + reporter
+        # progress 基于 L1 维度计数：intake/planner 合并计 1，6 个 L1 维度每个 1，
+        # root_cause + reporter 合并计 1。L2 领域专家由 dispatcher 内部并发触发，
+        # 不计入此处的粗略进度条，避免 total_stages 动态变化导致进度回跳。
+        total_stages = 8
         sub_count = record.get("sub_agent_count", 0)
         rc_done = record.get("root_cause_done", False)
-        completed = min(sub_count, 6) + (1 if rc_done else 0) + (1 if status in ("completed", "failed") else 0)
+        completed = 1 + min(sub_count, 6) + (1 if rc_done else 0) + (1 if status in ("completed", "failed") else 0)
         progress = {
             "total_dimensions": 6,
             "completed": min(completed, total_stages),
@@ -323,19 +326,20 @@ def create_router() -> APIRouter:
     # POST /feedback — 提交满意度反馈
     # ------------------------------------------------------------------ #
     @router.post("/feedback")
-    async def submit_feedback(feedback: dict):
+    async def submit_feedback(feedback: dict, token: str = ""):
         """提交满意度反馈。
 
-        请求体格式:
+        示例:
         {
-            "trace_id": "trace-xxxx",
-            "feedback_token": "abcd1234",
-            "satisfaction": 4,
-            "root_cause_correct": true,
-            "comment": "分析准确"
+          "trace_id": "trace-xxx",
+          "satisfaction": 5,
+          "comment": "准确定位了问题根因"
         }
         """
         trace_id = feedback.get("trace_id", "")
+        # 如果 URL 中携带 token，回填到反馈记录
+        if token and not feedback.get("feedback_token"):
+            feedback["feedback_token"] = token
         record = await analysis_store.get(trace_id)
         if record is None:
             return JSONResponse(
