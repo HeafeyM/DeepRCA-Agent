@@ -52,29 +52,47 @@ class AnalysisStore:
         self._redis_available = False
 
     async def _ensure_redis(self):
-        """延迟初始化 Redis 连接（仅尝试一次）。"""
-        if self._redis_checked:
-            return self._redis if self._redis_available else None
-        self._redis_checked = True
-        settings = get_settings()
-        try:
-            import redis.asyncio as aioredis
+        """延迟初始化 Redis 连接（带有限重试）。
 
-            self._redis = aioredis.Redis(
-                host=settings.redis_host,
-                port=settings.redis_port,
-                db=settings.redis_db,
-                password=settings.redis_password or None,
-                decode_responses=True,
-            )
-            await self._redis.ping()
-            self._redis_available = True
-            logger.info("AnalysisStore: Redis 连接成功")
-        except Exception:
-            self._redis = None
-            self._redis_available = False
-            logger.warning("AnalysisStore: Redis 不可用，降级为内存存储")
-        return self._redis if self._redis_available else None
+        首次调用时尝试连接 Redis，如果失败则间隔 1 秒重试最多 3 次。
+        一旦成功标记为可用，不再重试。如果全部失败，降级为内存存储，
+        但保持 _redis_checked=False 以允许后续操作时再次尝试连接。
+        """
+        if self._redis_available and self._redis is not None:
+            return self._redis
+        if self._redis_checked and not self._redis_available:
+            # 之前连接失败过，允许后续重试（不永久降级）
+            self._redis_checked = False
+
+        settings = get_settings()
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                import redis.asyncio as aioredis
+
+                self._redis = aioredis.Redis(
+                    host=settings.redis_host,
+                    port=settings.redis_port,
+                    db=settings.redis_db,
+                    password=settings.redis_password or None,
+                    decode_responses=True,
+                )
+                await self._redis.ping()
+                self._redis_available = True
+                self._redis_checked = True
+                logger.info("AnalysisStore: Redis 连接成功 (attempt %d/%d)", attempt, max_retries)
+                return self._redis
+            except Exception:
+                self._redis = None
+                self._redis_available = False
+                if attempt < max_retries:
+                    logger.warning("AnalysisStore: Redis 连接失败 (attempt %d/%d)，%ds 后重试", attempt, max_retries, 1)
+                    await asyncio.sleep(1)
+                else:
+                    logger.warning("AnalysisStore: Redis 连接失败 (attempt %d/%d)，降级为内存存储", attempt, max_retries)
+
+        self._redis_checked = True
+        return None
 
     async def get(self, trace_id: str) -> dict[str, Any] | None:
         """获取分析记录。"""

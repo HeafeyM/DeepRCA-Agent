@@ -908,8 +908,8 @@ services:
 | `MAX_CONCURRENT_TASKS` | 10 | 最大并发任务数 |
 | `MOCK_ENV_ENABLED` | true | 是否启用 Mock 模式 |
 | `MOCK_K8S_API` | http://localhost:8001 | Mock K8s API 地址 |
-| `MOCK_MONITOR_API` | http://localhost:8001 | Mock 监控 API 地址（当前未使用，mock_env_enabled 优先） |
-| `MOCK_LOG_API` | http://localhost:8001 | Mock 日志 API 地址（当前未使用，mock_env_enabled 优先） |
-| `MOCK_CHANGE_API` | http://localhost:8001 | Mock 变更 API 地址（当前未使用，mock_env_enabled 优先） |
+| `MOCK_MONITOR_API` | http://localhost:8001 | Mock 监控 API 地址（Mock 模式下被工具层和 L2 专家使用） |
+| `MOCK_LOG_API` | http://localhost:8001 | Mock 日志 API 地址（Mock 模式下被日志工具使用） |
+| `MOCK_CHANGE_API` | http://localhost:8001 | Mock 变更 API 地址（Mock 模式下被变更工具使用） |
 
 

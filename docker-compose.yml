@@ -69,6 +69,8 @@ services:
       - MOCK_LOG_API=http://mock-env:8001
       - MOCK_CHANGE_API=http://mock-env:8001
       - ANALYSIS_TIMEOUT=${ANALYSIS_TIMEOUT:-60}
+      - TOOL_CALL_TIMEOUT=${TOOL_CALL_TIMEOUT:-10}
+      - MAX_CONCURRENT_TASKS=${MAX_CONCURRENT_TASKS:-10}
     volumes:
       - deeprca-logs:/app/logs
       - ./.env:/app/.env:ro

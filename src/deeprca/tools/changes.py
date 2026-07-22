@@ -44,7 +44,7 @@ async def query_recent_changes(
         try:
             async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
                 resp = await client.get(
-                    f"{settings.mock_monitor_api}/api/v1/mock/service/{service_name}/changes",
+                    f"{settings.mock_change_api}/api/v1/mock/service/{service_name}/changes",
                     params={"time_window": time_window},
                 )
                 resp.raise_for_status()

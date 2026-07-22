@@ -1,7 +1,8 @@
 """Mock 数据生成器 — 为 6 个工具提供确定性模拟数据。
 
-当 settings.mock_env_enabled=True 时，工具层直接返回 mock 数据，
-无需依赖外部 Mock API 服务（localhost:8001~8004）。
+[已废弃] 工具层自 reviewer-fix-3 起已改为 HTTP 调用 Mock API（端口 8001）获取场景感知数据，
+此文件不再被任何模块导入使用，保留仅供历史参考。
+如需恢复内联 Mock 模式，请移除此注释并重新接线工具层导入。
 
 @changelog
 <table>

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -40,6 +41,8 @@ __all__ = [
     "check_timeout",
     "COORDINATOR_SYSTEM_PROMPT",
 ]
+
+logger = logging.getLogger(__name__)
 
 # PRD-02 §3: Coordinator Agent System Prompt
 COORDINATOR_SYSTEM_PROMPT = """你是一个故障诊断智能体系统的通用分析 Agent（Coordinator Agent）。
@@ -699,8 +702,6 @@ def _push_notification(report: dict, alert: dict, degraded: bool) -> None:
     degraded_tag = " [降级模式]" if degraded else ""
 
     # 当前仅输出日志，生产环境对接通知系统
-    import logging
-    logger = logging.getLogger("deeprca.reporter")
     logger.info(
         "分析报告通知%s: service=%s severity=%s root_cause=%s confidence=%.2f trace_id=%s",
         degraded_tag, service, severity, root_cause, confidence, report.get("trace_id", ""),

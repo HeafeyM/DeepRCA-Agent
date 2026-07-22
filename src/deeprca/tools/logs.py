@@ -62,7 +62,7 @@ async def query_error_logs(
         try:
             async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
                 resp = await client.get(
-                    f"{settings.mock_monitor_api}/api/v1/mock/service/{service_name}/logs",
+                    f"{settings.mock_log_api}/api/v1/mock/service/{service_name}/logs",
                     params={"start_time": start_time, "end_time": end_time, "level": level, "keyword": keyword, "limit": limit},
                 )
                 resp.raise_for_status()
