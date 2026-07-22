@@ -146,6 +146,6 @@ class TestMockService:
 
     def test_inject_timeout(self, reset_mock, mock_client):
         resp = mock_client.post("/service/order-service/inject/timeout", json={
-            "latency_ms": 800,
+            "tp99_ms": 800,
         })
         assert resp.status_code == 200

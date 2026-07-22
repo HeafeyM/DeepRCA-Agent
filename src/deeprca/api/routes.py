@@ -330,22 +330,28 @@ def create_router() -> APIRouter:
     # POST /feedback — 提交满意度反馈
     # ------------------------------------------------------------------ #
     @router.post("/feedback")
-    async def submit_feedback(feedback: dict, token: str = ""):
+    async def submit_feedback(feedback: dict, trace_id: str = "", token: str = ""):
         """提交满意度反馈。
 
         支持的字段:
-        - trace_id (必需): 分析追踪 ID
+        - trace_id (必需): 分析追踪 ID（可通过请求体或 URL query string 传入）
         - satisfaction (必需): 满意度评分 1-5
         - root_cause_correct (可选): 根因是否正确 (bool)
         - comment (可选): 评论
         - feedback_token (可选): 反馈 token（也可通过 URL query string 传入）
+
+        传参方式:
+        - 方式 A: POST /feedback body 中带 trace_id
+        - 方式 B: POST /feedback?trace_id=xxx&token=xxx query string 传参
         """
-        trace_id = feedback.get("trace_id", "")
-        if not trace_id:
+        # 优先从请求体读取 trace_id，若为空则从 query string 读取
+        resolved_trace_id = feedback.get("trace_id", "") or trace_id
+        if not resolved_trace_id:
             return JSONResponse(
                 status_code=400,
-                content={"message": "trace_id is required"},
+                content={"message": "trace_id is required (via body or query string)"},
             )
+        feedback["trace_id"] = resolved_trace_id
         satisfaction = feedback.get("satisfaction")
         if satisfaction is None:
             return JSONResponse(
@@ -365,7 +371,7 @@ def create_router() -> APIRouter:
         # 如果 URL 中携带 token，回填到反馈记录
         if token and not feedback.get("feedback_token"):
             feedback["feedback_token"] = token
-        record = await analysis_store.get(trace_id)
+        record = await analysis_store.get(resolved_trace_id)
         if record is None:
             return JSONResponse(
                 status_code=404,
@@ -373,7 +379,7 @@ def create_router() -> APIRouter:
             )
 
         # 存储反馈
-        await analysis_store.update(trace_id, feedback=feedback)
+        await analysis_store.update(resolved_trace_id, feedback=feedback)
 
         # 尝试推送到 Kafka（非阻塞，失败不影响响应）
         settings = get_settings()
@@ -383,7 +389,7 @@ def create_router() -> APIRouter:
             # Mock 模式下记录日志，确保反馈数据可追溯
             logger.info(
                 "Feedback received (mock mode): trace_id=%s satisfaction=%s",
-                trace_id, feedback.get("satisfaction"),
+                resolved_trace_id, feedback.get("satisfaction"),
             )
 
         return {"status": "accepted", "message": "Feedback received"}

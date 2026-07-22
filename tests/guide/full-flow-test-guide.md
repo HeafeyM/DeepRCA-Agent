@@ -488,7 +488,7 @@ curl http://localhost:8000/api/v1/analyze/$TRACE_ID/result | docker exec -i deep
       "category": "resource",
       "evidence": [...]
     },
-    "all_candidates": [...]
+"candidates": [...]
   }
 }
 ```

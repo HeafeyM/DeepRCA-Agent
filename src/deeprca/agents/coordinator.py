@@ -184,7 +184,8 @@ def intake_node(state: DeepRCAState) -> dict:
         app=app,
     )
 
-    trace_id = f"trace-{uuid.uuid4().hex[:12]}"
+    # 优先使用 routes.py 已生成的 trace_id，仅在不存在时才生成新的
+    trace_id = state.get("trace_id", "") or f"trace-{uuid.uuid4().hex[:12]}"
 
     return {
         "alert": parsed.model_dump(),

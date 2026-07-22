@@ -115,7 +115,25 @@ def create_mock_router() -> APIRouter:
                         if final_status in ("completed", "failed"):
                             break
 
+                # 轮询超时后额外等待并重试一次，避免慢速环境 false negative
+                if final_status == "running":
+                    await asyncio.sleep(poll_interval * 3)
+                    sresp = await client.get(f"{base_url}/api/v1/analyze/{trace_id}/status")
+                    if sresp.status_code == 200:
+                        final_status = sresp.json().get("status", "running")
+
                 # 5. 获取分析结果
+                if final_status == "running":
+                    # 分析仍在进行中，返回 pending 而非 error
+                    return JSONResponse(
+                        status_code=202,
+                        content={
+                            "scenario": name,
+                            "status": "pending",
+                            "trace_id": trace_id,
+                            "message": "Analysis still running after timeout, please retry later",
+                        },
+                    )
                 rresp = await client.get(f"{base_url}/api/v1/analyze/{trace_id}/result")
                 if rresp.status_code != 200:
                     return JSONResponse(
