@@ -20,10 +20,12 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from deeprca.api.websocket import ConnectionManager
 from deeprca.config import get_settings
 from deeprca.graph import build_coordinator_graph
+from deeprca.models.alert import AlertEvent
 
 __all__ = ["create_router", "analysis_store"]
 
@@ -150,21 +152,24 @@ def create_router() -> APIRouter:
             "labels": {"cluster": "prod-cluster", "env": "production", "app": "order"}
         }
         """
-        # PRD-02 §7: 告警格式验证
-        required_fields = ["alert_id", "service_name", "alert_type", "severity", "timestamp"]
-        missing = [f for f in required_fields if not alert.get(f)]
-        if missing:
+        # 使用 AlertEvent Pydantic 模型校验: 必需字段、alert_type 枚举、severity 枚举
+        try:
+            validated = AlertEvent(**alert)
+        except ValidationError as e:
             return JSONResponse(
                 status_code=400,
-                content={"message": f"必需字段缺失: {', '.join(missing)}", "missing_fields": missing},
+                content={"message": "告警格式校验失败", "detail": e.errors()},
             )
+
+        # 转换为 dict 供 LangGraph 状态使用
+        alert_dict = validated.model_dump()
 
         # 生成 trace_id
         trace_id = f"trace-{uuid.uuid4().hex[:12]}"
 
         # 初始化状态
         initial_state = {
-            "alert": alert,
+            "alert": alert_dict,
             "task_plan": [],
             "sub_agent_results": [],
             "collected_evidence": None,
@@ -229,6 +234,7 @@ def create_router() -> APIRouter:
         asyncio.create_task(_run_analysis())
 
         # PRD-02 §6.1: 返回 websocket_url（使用外部可访问地址，而非 app_host 的 0.0.0.0）
+        settings = get_settings()
         ws_url = f"ws://{settings.app_external_host}:{settings.app_port}/api/v1/analyze/{trace_id}/stream"
 
         return JSONResponse(
@@ -335,6 +341,27 @@ def create_router() -> APIRouter:
         - feedback_token (可选): 反馈 token（也可通过 URL query string 传入）
         """
         trace_id = feedback.get("trace_id", "")
+        if not trace_id:
+            return JSONResponse(
+                status_code=400,
+                content={"message": "trace_id is required"},
+            )
+        satisfaction = feedback.get("satisfaction")
+        if satisfaction is None:
+            return JSONResponse(
+                status_code=400,
+                content={"message": "satisfaction is required (1-5)"},
+            )
+        try:
+            satisfaction_val = int(satisfaction)
+            if not 1 <= satisfaction_val <= 5:
+                raise ValueError()
+            feedback["satisfaction"] = satisfaction_val
+        except (ValueError, TypeError):
+            return JSONResponse(
+                status_code=400,
+                content={"message": "satisfaction must be an integer between 1 and 5"},
+            )
         # 如果 URL 中携带 token，回填到反馈记录
         if token and not feedback.get("feedback_token"):
             feedback["feedback_token"] = token

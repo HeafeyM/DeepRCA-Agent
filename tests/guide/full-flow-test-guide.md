@@ -1,6 +1,7 @@
 # DeepRCA-Agent 全链路全流程测试指南
 
 > **目标环境**: macOS (Apple Silicon / Intel), 仅预装 Docker Desktop, 无其他组件
+> **同时适用**: Windows (PowerShell) — 文档中提供了对应命令
 > **适用版本**: master 分支 (commit ≥ a2935cd)
 > **预估时间**: 30–60 分钟（含镜像构建）
 
@@ -321,13 +322,15 @@ curl -X POST http://localhost:8000/api/v1/analyze \
                                               │  planner        │
                                               │    ↓            │
                                               │  dispatcher     │
+                                              │  (6维并行+L2)   │
                                               │    ↓            │
+                                              │  [条件边]       │
                                               │  check_timeout  │
                                               │  ┌──────┴──────┐│
                                               │  │normal  timeout│
                                               │  ↓         ↓   │
-                                              │  collector root_cause│
-                                              │  (6维并行)  (降级)│
+                                              │ collector  root_cause│
+                                              │ (证据汇聚)  (降级)│
                                               │  └──────┬──────┘│
                                               │         ↓       │
                                               │     root_cause   │
@@ -340,6 +343,8 @@ curl -X POST http://localhost:8000/api/v1/analyze \
                                               返回分析报告
                                               (含根因+建议+置信度)
 ```
+
+> **架构说明**: LangGraph 图包含 6 个节点（intake → planner → dispatcher → collector → root_cause → reporter）。`check_timeout` 是 `dispatcher` 的条件路由函数（非图节点），超时跳过 collector 直达 root_cause。6 维 L1 并行收集发生在 dispatcher_node（通过 asyncio.gather 并发调用 6 个维度分析器），collector_node 仅做证据池汇聚。
 
 ### 6.2 方式一：一键端到端（推荐）
 
@@ -433,7 +438,7 @@ curl http://localhost:8000/api/v1/analyze/$TRACE_ID/status | docker exec -i deep
 分析过程中 `status` 为 `running`，完成后变为 `completed`。通常需要 5–30 秒。
 
 ```bash
-# 循环轮询直到完成
+# 循环轮询直到完成 (macOS/Linux bash)
 while true; do
   STATUS=$(curl -s http://localhost:8000/api/v1/analyze/$TRACE_ID/status | docker exec -i deeprca-agent python -c "import sys,json; print(json.load(sys.stdin)['status'])")
   echo "Status: $STATUS"
@@ -442,6 +447,17 @@ while true; do
   fi
   sleep 2
 done
+```
+
+Windows PowerShell 版本:
+```powershell
+while ($true) {
+  $resp = curl -s "http://localhost:8000/api/v1/analyze/$TRACE_ID/status"
+  $status = ($resp | docker exec -i deeprca-agent python -c "import sys,json; print(json.load(sys.stdin)['status'])")
+  Write-Host "Status: $status"
+  if ($status -eq "completed" -or $status -eq "failed") { break }
+  Start-Sleep 2
+}
 ```
 
 #### 步骤 6: 获取分析结果
@@ -479,6 +495,10 @@ curl http://localhost:8000/api/v1/analyze/$TRACE_ID/result | docker exec -i deep
 
 #### 步骤 7: 提交反馈
 
+反馈支持两种 token 传递方式:
+
+**方式 A: 通过请求体提交（推荐）**
+
 ```bash
 curl -X POST http://localhost:8000/api/v1/feedback \
   -H "Content-Type: application/json" \
@@ -490,6 +510,20 @@ curl -X POST http://localhost:8000/api/v1/feedback \
     "comment": "分析准确，根因定位正确"
   }' | docker exec -i deeprca-agent python -m json.tool
 ```
+
+**方式 B: 通过 URL query string 提交（satisfaction_url 生成的链接即使用此方式）**
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/feedback?trace_id=$TRACE_ID&token=manual-test" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "satisfaction": 5,
+    "root_cause_correct": true,
+    "comment": "分析准确，根因定位正确"
+  }' | docker exec -i deeprca-agent python -m json.tool
+```
+
+> **字段说明**: `satisfaction` 为必需字段（整数 1-5），`trace_id` 为必需字段。`root_cause_correct`、`comment`、`feedback_token` 为可选字段。
 
 ### 6.4 逐场景执行所有 8 个场景
 
@@ -558,8 +592,10 @@ asyncio.run(listen())
 [connected] {"trace_id": "trace-xxx", "event": "connected"}
 [status]    {"trace_id": "trace-xxx", "event": "status", "status": "running", "timestamp": "..."}
 [status]    {"trace_id": "trace-xxx", "event": "status", "status": "running", "timestamp": "..."}
-[completed] {"trace_id": "trace-xxx", "event": "completed", "report": {...}, "root_cause": {...}}
+[completed] {"trace_id": "trace-xxx", "event": "completed", "status": "completed", "timestamp": "..."}
 ```
+
+> **说明**: broadcast 推送的 completed 事件包含 `status` 和 `timestamp` 字段。轮询兜底的 completed 消息还额外包含 `report` 和 `root_cause` 完整内容。如需获取完整报告，请通过 `GET /api/v1/analyze/{trace_id}/result` 端点查询。
 
 ---
 
@@ -687,11 +723,19 @@ print(f'ANALYSIS_TIMEOUT={get_settings().analysis_timeout}s')
 **症状**: `docker compose up` 报 `port is already allocated`
 
 **排查**:
+
+macOS / Linux:
 ```bash
-# 查看占用端口的进程
 lsof -i :8000
 lsof -i :8001
 lsof -i :6379
+```
+
+Windows (PowerShell):
+```powershell
+netstat -ano | findstr :8000
+netstat -ano | findstr :8001
+netstat -ano | findstr :6379
 ```
 
 **修复**: 停止占用端口的进程，或修改 `docker-compose.yml` 中的端口映射。
@@ -728,27 +772,82 @@ services:
 
 ### Mock API (端口 8001)
 
+#### 通用
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/v1/mock/health` | 模拟环境健康检查 |
 | POST | `/api/v1/mock/reset` | 重置所有模拟器 |
+
+#### 场景管理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
 | GET | `/api/v1/mock/scenarios` | 列出 8 个预设场景 |
 | GET | `/api/v1/mock/scenarios/{name}` | 获取场景详情 |
 | POST | `/api/v1/mock/scenarios/{name}/apply` | 应用场景（故障注入） |
 | POST | `/api/v1/mock/scenarios/{name}/run` | 端到端执行（注入+分析+验证） |
-| GET | `/api/v1/mock/k8s/deployments` | K8s Deployment 列表 |
+
+#### K8s
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/mock/k8s/deployments` | Deployment 列表 |
+| GET | `/api/v1/mock/k8s/deployments/{name}` | Deployment 详情 |
 | GET | `/api/v1/mock/k8s/deployments/{name}/pods` | Pod 列表 |
 | GET | `/api/v1/mock/k8s/events` | K8s 事件列表 |
+| POST | `/api/v1/mock/k8s/inject/pod-restart` | 注入 Pod 重启 |
+| POST | `/api/v1/mock/k8s/inject/resource-pressure` | 注入资源压力 |
+| POST | `/api/v1/mock/k8s/inject/pod-crash` | 注入 Pod 崩溃 |
+| POST | `/api/v1/mock/k8s/scale` | 伸缩 Deployment |
+
+#### DB (MySQL)
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
 | GET | `/api/v1/mock/db/{instance}/metrics` | DB 指标 |
 | GET | `/api/v1/mock/db/{instance}/slow-log` | DB 慢日志 |
 | GET | `/api/v1/mock/db/{instance}/topology` | DB 拓扑 |
+| POST | `/api/v1/mock/db/{instance}/inject/slave-delay` | 注入主从延迟 |
+| POST | `/api/v1/mock/db/{instance}/inject/connection-pool` | 注入连接池耗尽 |
+| POST | `/api/v1/mock/db/{instance}/inject/slow-query` | 注入慢查询 |
+| POST | `/api/v1/mock/db/{instance}/inject/lock-wait` | 注入锁等待 |
+
+#### Redis
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
 | GET | `/api/v1/mock/redis/{instance}/metrics` | Redis 指标 |
 | GET | `/api/v1/mock/redis/{instance}/hotkeys` | Redis 热 Key |
-| GET | `/api/v1/mock/kafka/{cluster}/topics/{topic}/lag` | Kafka 消费积压 |
+| GET | `/api/v1/mock/redis/{instance}/topology` | Redis 拓扑 |
+| POST | `/api/v1/mock/redis/{instance}/inject/memory-pressure` | 注入内存压力 |
+| POST | `/api/v1/mock/redis/{instance}/inject/hit-rate-drop` | 注入命中率下降 |
+| POST | `/api/v1/mock/redis/{instance}/inject/hotkey` | 注入热 Key |
+| POST | `/api/v1/mock/redis/{instance}/inject/bigkey` | 注入大 Key |
+
+#### Kafka
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/mock/kafka/{cluster}/topics/{topic}/lag` | 消费积压 |
+| GET | `/api/v1/mock/kafka/{cluster}/metrics` | Kafka 指标 |
+| POST | `/api/v1/mock/kafka/{cluster}/inject/consumer-offline` | 注入消费者离线 |
+| POST | `/api/v1/mock/kafka/{cluster}/inject/rebalance` | 注入 Rebalance 风暴 |
+| POST | `/api/v1/mock/kafka/{cluster}/inject/consume-rate-drop` | 注入消费速率下降 |
+
+#### 微服务
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
 | GET | `/api/v1/mock/service/{name}/topology` | 服务拓扑 |
 | GET | `/api/v1/mock/service/{name}/metrics/{metric}` | 服务指标 |
 | GET | `/api/v1/mock/service/{name}/traces` | 调用链 |
 | GET | `/api/v1/mock/service/{name}/logs` | 服务日志 |
+| GET | `/api/v1/mock/service/{name}/changes` | 服务变更记录 |
+| GET | `/api/v1/mock/service/{name}/alerts` | 服务关联告警 |
+| POST | `/api/v1/mock/service/{name}/inject/timeout` | 注入超时 |
+| POST | `/api/v1/mock/service/{name}/inject/traffic-spike` | 注入流量突增 |
+| POST | `/api/v1/mock/service/{name}/inject/error-rate` | 注入错误率突增 |
 
 ### 分析请求体格式
 
