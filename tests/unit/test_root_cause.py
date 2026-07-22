@@ -149,7 +149,7 @@ class TestRootCauseAgent:
         assert result["llm_used"] is False
         assert len(result["candidates"]) == 3
         best = result["best_candidate"]
-        assert best["source"] == "llm"
+        assert best["source"] == "fallback"
 
     # ------------------------------------------------------------------ #
     #  证据链提取

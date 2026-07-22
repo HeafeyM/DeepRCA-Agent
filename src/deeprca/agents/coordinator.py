@@ -84,12 +84,13 @@ _DIMENSION_MAP: dict[str, str] = {
     "problem": "analyze_problem",
 }
 
-# 线程池（全局单例，避免每次创建）
+# ThreadPoolExecutor（全局单例，预留供 dispatcher_node 切换为线程池模式使用）
+# 当前 dispatcher_node 使用纯 asyncio.gather 模式，_get_executor() 暂未调用
 _executor: ThreadPoolExecutor | None = None
 
 
 def _get_executor() -> ThreadPoolExecutor:
-    """获取全局线程池单例。"""
+    """获取全局线程池单例（当前未使用，保留供未来扩展）。"""
     global _executor
     if _executor is None:
         settings = get_settings()
@@ -319,6 +320,8 @@ async def dispatcher_node(state: DeepRCAState) -> dict:
     if not task_plan:
         return {"sub_agent_results": [], "messages": ["[dispatcher] 无任务可执行"]}
 
+    settings = get_settings()
+
     # L1 维度分析函数映射（PRD-03 已实现）
     from deeprca.agents.dimensions import (
         analyze_change,
@@ -386,8 +389,9 @@ async def dispatcher_node(state: DeepRCAState) -> dict:
 
     alert = state.get("alert", {})
     l1_findings = [
-        r.get("findings", []) for r in l1_results
+        f for r in l1_results
         if r.get("findings") and not r.get("error")
+        for f in r["findings"]
     ]
     # 将 L1 发现作为上下文传递给 L2 专家
     l2_context = {"l1_findings": l1_findings, "task_plan": task_plan}
@@ -477,11 +481,17 @@ async def root_cause_node(state: DeepRCAState) -> dict:
 
     调用 L3 RootCauseAgent 执行 6 步根因定位。
     如果 L3 Agent 不可用，降级为基于证据池的简单排序。
+    超时降级路径下（collector 被跳过），从 sub_agent_results 构建简易证据池。
     """
     alert = state.get("alert", {})
     evidence_summary = state.get("collected_evidence", {})
     sub_agent_results = state.get("sub_agent_results", [])
     trace_id = state.get("trace_id", "")
+
+    # 超时降级路径：collector 被跳过，collected_evidence 为空
+    # 从 sub_agent_results 构建简易证据池，避免 L3 Agent 在空证据下分析
+    if not evidence_summary and sub_agent_results:
+        evidence_summary = _build_emergency_evidence(sub_agent_results)
 
     try:
         # 延迟导入 RootCauseAgent（Worker-3 实现）
@@ -516,6 +526,36 @@ async def root_cause_node(state: DeepRCAState) -> dict:
             },
             "messages": [f"[root_cause] 异常: {e}"],
         }
+
+
+def _build_emergency_evidence(sub_results: list[dict]) -> dict:
+    """超时降级路径下从 sub_agent_results 构建简易证据池摘要。
+
+    当 check_timeout 返回 "timeout" 时，collector 节点被跳过，
+    collected_evidence 为空。此函数从已有的 L1/L2 分析结果中提取
+    关键信息，构建一个简易证据池供 root_cause_node 使用。
+    """
+    top_evidences = []
+    for result in sub_results:
+        if result.get("error"):
+            continue
+        confidence = result.get("confidence", 0.0)
+        findings = result.get("findings", [])
+        for finding in findings[:2]:
+            finding_str = str(finding.get("desc", finding.get("description", finding)))
+            top_evidences.append({
+                "source": result.get("agent_name", "unknown"),
+                "dimension": result.get("dimension", "unknown"),
+                "finding": finding_str,
+                "confidence": confidence,
+                "level": "high" if confidence >= 0.7 else ("medium" if confidence >= 0.4 else "low"),
+            })
+
+    return {
+        "top_evidences": top_evidences[:10],
+        "total_count": len(top_evidences),
+        "emergency_mode": True,
+    }
 
 
 def _fallback_root_cause(state: DeepRCAState) -> dict:

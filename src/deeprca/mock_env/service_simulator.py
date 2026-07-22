@@ -410,10 +410,26 @@ class MicroserviceSimulator:
     # 变更记录
     # ─────────────────────────────────────
     def get_changes(self, service_name: str, time_window: int = 3600) -> dict:
-        """生成变更记录数据。"""
+        """生成变更记录数据。
+
+        优先使用 set_scenario 传入的显式 changes 数据，
+        如果没有则根据场景名自行生成。
+        """
         scenario = self._active_scenario
         now = datetime.now(timezone.utc)
         changes: list[dict] = []
+
+        # 优先使用显式传入的 changes 数据（如 change_induced_failure 场景）
+        explicit_changes = self._scenario_data.get("changes", [])
+        if explicit_changes:
+            for ch in explicit_changes:
+                change = dict(ch)
+                if not change.get("timestamp"):
+                    change["timestamp"] = (now - timedelta(minutes=15)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+                if not change.get("service"):
+                    change["service"] = service_name
+                changes.append(change)
+            return {"service": service_name, "changes": changes}
 
         # 支持 alert_simulator 与 service_simulator 之间的场景名映射
         scenario_map = {

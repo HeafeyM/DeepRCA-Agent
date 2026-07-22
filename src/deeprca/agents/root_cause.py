@@ -638,7 +638,7 @@ class RootCauseAgent:
                 "confidence": 0.3,
                 "evidence_chain": [],
                 "matched_rule": None,
-                "source": "llm",
+                "source": "fallback",
             },
             {
                 "rank": 2,
@@ -646,7 +646,7 @@ class RootCauseAgent:
                 "confidence": 0.2,
                 "evidence_chain": [],
                 "matched_rule": None,
-                "source": "llm",
+                "source": "fallback",
             },
             {
                 "rank": 3,
@@ -654,6 +654,6 @@ class RootCauseAgent:
                 "confidence": 0.1,
                 "evidence_chain": [],
                 "matched_rule": None,
-                "source": "llm",
+                "source": "fallback",
             },
         ]

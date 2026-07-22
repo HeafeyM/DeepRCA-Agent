@@ -132,6 +132,9 @@ class AnalysisStore:
             await r.delete(f"deeprca:analysis:{trace_id}")
 
 
+# 后台任务引用集合（防止 Task 被 GC 回收）
+_background_tasks: set = set()
+
 # 全局分析状态存储实例（Redis 后端，内存降级）
 analysis_store = AnalysisStore()
 
@@ -249,7 +252,9 @@ def create_router() -> APIRouter:
                 })
 
         # 启动后台任务
-        asyncio.create_task(_run_analysis())
+        task = asyncio.create_task(_run_analysis())
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
 
         # PRD-02 §6.1: 返回 websocket_url（使用外部可访问地址，而非 app_host 的 0.0.0.0）
         settings = get_settings()

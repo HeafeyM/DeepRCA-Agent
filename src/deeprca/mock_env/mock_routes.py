@@ -437,4 +437,4 @@ def _semantic_match(actual: str, expected: str) -> bool:
     if not expected_words:
         return False
     overlap = len(actual_words & expected_words) / len(expected_words)
-    return overlap >= 0.3
+    return overlap >= 0.5
