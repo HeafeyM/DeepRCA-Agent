@@ -31,7 +31,11 @@
 | 内存 | ≥ 4 GB 分配给 Docker | Docker Desktop → Settings → Resources |
 | 网络 | 能访问公网拉取 `python:3.11-slim` 和 `redis:7-alpine` | — |
 
-> **注意**: 本指南不要求 macOS 上安装 Python、Node.js 或任何其他运行时。所有代码执行都在 Docker 容器内完成。
+> **注意**: 核心流程（构建、运行、测试）不要求 macOS 上安装 Python。但以下两类可选操作会用到宿主机 Python：
+> - `docker exec -i deeprca-agent python -m json.tool` 用于美化 curl 返回的 JSON（也可直接阅读原始输出）
+> - 第 7.2 节的 `ws_test.py` 脚本用于验证 WebSocket（需 `pip install websockets`）
+>
+> 所有 JSON 美化命令都通过 Docker 容器内 Python 执行，不依赖宿主机 Python。
 
 ### 1.2 克隆项目
 
@@ -231,7 +235,7 @@ curl http://localhost:8001/api/v1/mock/health
 ### 4.3 查看可用场景
 
 ```bash
-curl http://localhost:8001/api/v1/mock/scenarios | python3 -m json.tool
+curl http://localhost:8001/api/v1/mock/scenarios | docker exec -i deeprca-agent python -m json.tool
 ```
 
 返回 8 个预设场景列表：
@@ -262,7 +266,7 @@ curl -X POST http://localhost:8001/api/v1/mock/reset
 ### 5.1 健康检查
 
 ```bash
-curl http://localhost:8000/health | python3 -m json.tool
+curl http://localhost:8000/health | docker exec -i deeprca-agent python -m json.tool
 ```
 
 预期响应（Mock 模式下两个检查都 healthy）：
@@ -338,8 +342,8 @@ curl -X POST http://localhost:8000/api/v1/analyze \
 
 ```bash
 # 执行 db_slave_delay_timeout 场景
-curl -X POST http://localhost:8001/api/v1/mock/scenarios/db_slave_delay_timeout/run \
-  --max-time 120 | python3 -m json.tool
+curl -X POST "http://localhost:8001/api/v1/mock/scenarios/db_slave_delay_timeout/run" \
+  --max-time 120 | docker exec -i deeprca-agent python -m json.tool
 ```
 
 预期响应结构：
@@ -373,14 +377,14 @@ curl -X POST http://localhost:8001/api/v1/mock/reset
 
 ```bash
 curl -X POST http://localhost:8001/api/v1/mock/scenarios/oom_restart/apply \
-  -H "Content-Type: application/json" | python3 -m json.tool
+  -H "Content-Type: application/json" | docker exec -i deeprca-agent python -m json.tool
 ```
 
 #### 步骤 3: 获取告警事件
 
 ```bash
 # 查看场景详情（含生成的告警事件）
-curl http://localhost:8001/api/v1/mock/scenarios/oom_restart | python3 -m json.tool
+curl http://localhost:8001/api/v1/mock/scenarios/oom_restart | docker exec -i deeprca-agent python -m json.tool
 ```
 
 从响应中提取 `alert` 字段。
@@ -398,8 +402,7 @@ curl -X POST http://localhost:8000/api/v1/analyze \
     "timestamp": "2026-07-22T10:00:00Z",
     "description": "order-service 错误率突增至 15%",
     "labels": {"cluster": "prod-cluster-01", "env": "production"}
-  }' | python3 -m json.tool
-```
+  }' | docker exec -i deeprca-agent python -m json.tool
 
 预期响应（202 Accepted）：
 
@@ -418,7 +421,7 @@ curl -X POST http://localhost:8000/api/v1/analyze \
 ```bash
 TRACE_ID="trace-a1b2c3d4e5f6"  # 替换为实际 trace_id
 
-curl http://localhost:8000/api/v1/analyze/$TRACE_ID/status | python3 -m json.tool
+curl http://localhost:8000/api/v1/analyze/$TRACE_ID/status | docker exec -i deeprca-agent python -m json.tool
 ```
 
 分析过程中 `status` 为 `running`，完成后变为 `completed`。通常需要 5–30 秒。
@@ -426,7 +429,7 @@ curl http://localhost:8000/api/v1/analyze/$TRACE_ID/status | python3 -m json.too
 ```bash
 # 循环轮询直到完成
 while true; do
-  STATUS=$(curl -s http://localhost:8000/api/v1/analyze/$TRACE_ID/status | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+  STATUS=$(curl -s http://localhost:8000/api/v1/analyze/$TRACE_ID/status | docker exec -i deeprca-agent python -c "import sys,json; print(json.load(sys.stdin)['status'])")
   echo "Status: $STATUS"
   if [ "$STATUS" = "completed" ] || [ "$STATUS" = "failed" ]; then
     break
@@ -438,7 +441,7 @@ done
 #### 步骤 6: 获取分析结果
 
 ```bash
-curl http://localhost:8000/api/v1/analyze/$TRACE_ID/result | python3 -m json.tool
+curl http://localhost:8000/api/v1/analyze/$TRACE_ID/result | docker exec -i deeprca-agent python -m json.tool
 ```
 
 预期响应结构：
@@ -479,8 +482,7 @@ curl -X POST http://localhost:8000/api/v1/feedback \
     "satisfaction": 5,
     "root_cause_correct": true,
     "comment": "分析准确，根因定位正确"
-  }' | python3 -m json.tool
-```
+  }' | docker exec -i deeprca-agent python -m json.tool
 
 ### 6.4 逐场景执行所有 8 个场景
 
@@ -501,7 +503,7 @@ for scenario in "${SCENARIOS[@]}"; do
   echo "Running scenario: $scenario"
   echo "=========================================="
   curl -X POST "http://localhost:8001/api/v1/mock/scenarios/$scenario/run" \
-    --max-time 120 | python3 -m json.tool
+    --max-time 120 | docker exec -i deeprca-agent python -m json.tool
   echo ""
 done
 ```
@@ -590,8 +592,8 @@ docker exec deeprca-agent python -m pytest tests/smoke/test_smoke.py -v --tb=sho
 
 | 测试目录 | 测试数 | 依赖 | 说明 |
 |----------|--------|------|------|
-| `tests/unit/` | 167 | 无外部依赖 | 纯单元测试，内存 Mock |
-| `tests/smoke/test_smoke.py` | 17 | 无外部依赖 | 端到端测试，内存 Mock |
+| `tests/unit/` | 167 | 无外部依赖 | 纯单元测试，内存 Mock；统计口径为 `def test_*` 函数数量 |
+| `tests/smoke/test_smoke.py` | 12 | 无外部依赖 | 端到端测试，内存 Mock；统计口径为 `def test_*` 函数数量 |
 | `tests/smoke/test_agent_flow.py` | 5 | Agent + Mock 运行 | HTTP API 集成测试 |
 | `tests/smoke/test_health.py` | 4 | Agent + Mock 运行 | 健康检查集成测试 |
 | `tests/smoke/test_mock_sims.py` | 20 | Mock 运行 | Mock API 集成测试 |

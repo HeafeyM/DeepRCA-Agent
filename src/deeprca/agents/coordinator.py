@@ -681,7 +681,8 @@ def _generate_suggestions(best_candidate: dict, sub_results: list[dict], degrade
 def _build_feedback_url(trace_id: str, feedback_token: str) -> str:
     """构建满意度反馈 URL。"""
     settings = get_settings()
-    return f"{settings.app_host}:{settings.app_port}/api/v1/feedback?trace_id={trace_id}&token={feedback_token}"
+    # 使用 app_external_host 而非 app_host（0.0.0.0 外部不可访问）
+    return f"http://{settings.app_external_host}:{settings.app_port}/api/v1/feedback?trace_id={trace_id}&token={feedback_token}"
 
 
 def _push_notification(report: dict, alert: dict, degraded: bool) -> None:

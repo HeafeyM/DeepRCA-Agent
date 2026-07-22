@@ -8,3 +8,9 @@ httpx>=0.27.0
 redis>=5.0.0
 numpy>=1.26.0
 pandas>=2.2.0
+
+# 端到端场景运行 /scenarios/{name}/run 需要加载 build_coordinator_graph
+langchain>=0.2.0,<0.3.0
+langchain-core>=0.2.0,<0.3.0
+langgraph>=0.1.0,<0.2.0
+langchain-openai>=0.1.0

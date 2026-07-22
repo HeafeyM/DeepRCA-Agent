@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     app_env: str = Field(default="development", description="运行环境")
     app_host: str = Field(default="0.0.0.0", description="监听地址")
     app_port: int = Field(default=8000, description="监听端口")
+    app_external_host: str = Field(default="localhost", description="外部访问地址（用于生成反馈/通知 URL）")
     log_level: str = Field(default="INFO", description="日志级别")
 
     # LLM
@@ -50,13 +51,11 @@ class Settings(BaseSettings):
     # Kafka (standard)
     kafka_bootstrap_servers: str = Field(default="localhost:9092", description="Kafka 地址")
     kafka_feedback_topic: str = Field(default="deeprca-feedback", description="反馈 topic")
-    kafka_feedback_delay_ms: int = Field(default=1800000, description="延迟消息毫秒数（30分钟）")
 
     # Analysis
     analysis_timeout: int = Field(default=60, description="端到端分析超时（秒）")
     tool_call_timeout: int = Field(default=10, description="单次工具调用超时（秒）")
     max_concurrent_tasks: int = Field(default=10, description="最大并发任务数")
-    satisfaction_push_delay: int = Field(default=1800, description="满意度推送延迟（秒）")
 
     # Mock Environment
     mock_env_enabled: bool = Field(default=True, description="是否启用 Mock 环境")

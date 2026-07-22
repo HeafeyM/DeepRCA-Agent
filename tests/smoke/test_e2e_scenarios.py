@@ -1,6 +1,6 @@
 """端到端场景冒烟测试 — PRD-06 §5.5 / §10。
 
-通过 Mock 环境的 run_scenario_e2e 端点验证 5 个预设场景的完整链路:
+通过 Mock 环境的 run_scenario_e2e 端点验证 8 个预设场景的完整链路:
 注入故障 → 生成告警 → Agent 分析 → 根因匹配 → 置信度校验
 """
 
@@ -8,13 +8,16 @@ from __future__ import annotations
 
 import pytest
 
-# PRD-06 §5.5 要求验证 5 个核心场景
+# PRD-05 §6 定义了 8 个预设场景，冒烟测试覆盖全部场景
 SCENARIOS = [
     "db_slave_delay_timeout",
     "oom_restart",
     "kafka_consumer_lag",
     "change_induced_failure",
     "redis_memory_pressure",
+    "traffic_spike_saturation",
+    "rpc_circuit_breaker",
+    "multi_dimension_anomaly",
 ]
 
 

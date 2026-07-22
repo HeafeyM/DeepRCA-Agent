@@ -22,6 +22,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from deeprca.config import get_settings
 from deeprca.graph.subgraphs.base_expert import BaseExpertAgent
+from deeprca.graph.subgraphs.expert_mock_data import mock_db_metrics
 from deeprca.models import SubAgentResult
 
 __all__ = ["DBExpertAgent"]
@@ -78,6 +79,13 @@ class DBExpertAgent(BaseExpertAgent):
         try:
             settings = get_settings()
             service = state.get("alert", {}).get("service_name", "")
+
+            # Mock 模式下直接返回与子 Agent 口径一致的本地数据
+            # mock-env 未暴露 /api/metrics/db 端点，避免 404
+            if settings.mock_env_enabled:
+                metrics = mock_db_metrics(service)
+                return {"metrics": metrics, "error": None}
+
             async with httpx.AsyncClient(timeout=settings.tool_call_timeout) as client:
                 resp = await client.get(
                     f"{settings.mock_monitor_api}/api/metrics/db",

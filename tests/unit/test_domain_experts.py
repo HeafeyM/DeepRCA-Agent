@@ -26,6 +26,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from deeprca.config import Settings
 from deeprca.graph.subgraphs import (
     DBExpertAgent,
     MafkaExpertAgent,
@@ -35,6 +36,16 @@ from deeprca.graph.subgraphs import (
     get_expert_agent,
 )
 from deeprca.models import SubAgentResult
+
+
+@pytest.fixture
+def real_api_settings():
+    """返回 mock_env_enabled=False 的 Settings，用于测试 httpx 外部 API 路径。"""
+    return Settings(
+        app_env="test",
+        mock_env_enabled=False,
+        mock_monitor_api="http://localhost:8002",
+    )
 
 
 # ─────────────────────────────────────────────
@@ -118,7 +129,7 @@ class TestDBExpert:
     """PRD-03 §10: 主从延迟 + 慢查询突增 → 置信度 ≥ 0.8。"""
 
     @pytest.mark.asyncio
-    async def test_slow_query_and_replication_lag(self):
+    async def test_slow_query_and_replication_lag(self, real_api_settings):
         """慢查询数 60 + 主从延迟 35s → 置信度 ≥ 0.8。"""
         mock_metrics = {
             "slow_query_count": 60,
@@ -129,7 +140,8 @@ class TestDBExpert:
         }
         mock_client = _mock_async_client(mock_metrics)
 
-        with patch("deeprca.graph.subgraphs.db_expert.httpx.AsyncClient", return_value=mock_client):
+        with patch("deeprca.graph.subgraphs.db_expert.get_settings", return_value=real_api_settings), \
+             patch("deeprca.graph.subgraphs.db_expert.httpx.AsyncClient", return_value=mock_client):
             agent = DBExpertAgent()
             result = await agent.analyze({"service_name": "test-svc"}, {})
 
@@ -142,7 +154,7 @@ class TestDBExpert:
         assert "replication_lag" in finding_types
 
     @pytest.mark.asyncio
-    async def test_connection_pool_high(self):
+    async def test_connection_pool_high(self, real_api_settings):
         """连接池使用率 > 80% → 发现 connection_pool 异常。"""
         mock_metrics = {
             "slow_query_count": 5,
@@ -153,7 +165,8 @@ class TestDBExpert:
         }
         mock_client = _mock_async_client(mock_metrics)
 
-        with patch("deeprca.graph.subgraphs.db_expert.httpx.AsyncClient", return_value=mock_client):
+        with patch("deeprca.graph.subgraphs.db_expert.get_settings", return_value=real_api_settings), \
+             patch("deeprca.graph.subgraphs.db_expert.httpx.AsyncClient", return_value=mock_client):
             agent = DBExpertAgent()
             result = await agent.analyze({"service_name": "test-svc"}, {})
 
@@ -162,11 +175,12 @@ class TestDBExpert:
         assert "connection_pool" in finding_types
 
     @pytest.mark.asyncio
-    async def test_collect_error_degrades_gracefully(self):
+    async def test_collect_error_degrades_gracefully(self, real_api_settings):
         """采集失败 → confidence=0.0, error 不为空。"""
         mock_client = _mock_async_client(ConnectionError("connection refused"))
 
-        with patch("deeprca.graph.subgraphs.db_expert.httpx.AsyncClient", return_value=mock_client):
+        with patch("deeprca.graph.subgraphs.db_expert.get_settings", return_value=real_api_settings), \
+             patch("deeprca.graph.subgraphs.db_expert.httpx.AsyncClient", return_value=mock_client):
             agent = DBExpertAgent()
             result = await agent.analyze({"service_name": "test-svc"}, {})
 
@@ -174,7 +188,7 @@ class TestDBExpert:
         assert result.error is not None
 
     @pytest.mark.asyncio
-    async def test_no_anomaly(self):
+    async def test_no_anomaly(self, real_api_settings):
         """无异常指标 → confidence ≤ 0.3。"""
         mock_metrics = {
             "slow_query_count": 2,
@@ -185,7 +199,8 @@ class TestDBExpert:
         }
         mock_client = _mock_async_client(mock_metrics)
 
-        with patch("deeprca.graph.subgraphs.db_expert.httpx.AsyncClient", return_value=mock_client):
+        with patch("deeprca.graph.subgraphs.db_expert.get_settings", return_value=real_api_settings), \
+             patch("deeprca.graph.subgraphs.db_expert.httpx.AsyncClient", return_value=mock_client):
             agent = DBExpertAgent()
             result = await agent.analyze({"service_name": "test-svc"}, {})
 
@@ -193,7 +208,7 @@ class TestDBExpert:
         assert len(result.findings) == 0
 
     @pytest.mark.asyncio
-    async def test_lock_wait_critical(self):
+    async def test_lock_wait_critical(self, real_api_settings):
         """锁等待 > 5 → 发现 critical 级别 lock_wait。"""
         mock_metrics = {
             "slow_query_count": 3,
@@ -204,7 +219,8 @@ class TestDBExpert:
         }
         mock_client = _mock_async_client(mock_metrics)
 
-        with patch("deeprca.graph.subgraphs.db_expert.httpx.AsyncClient", return_value=mock_client):
+        with patch("deeprca.graph.subgraphs.db_expert.get_settings", return_value=real_api_settings), \
+             patch("deeprca.graph.subgraphs.db_expert.httpx.AsyncClient", return_value=mock_client):
             agent = DBExpertAgent()
             result = await agent.analyze({"service_name": "test-svc"}, {})
 
@@ -222,7 +238,7 @@ class TestRedisExpert:
     """PRD-03 §10: 内存使用率 90% + eviction → 置信度 ≥ 0.6。"""
 
     @pytest.mark.asyncio
-    async def test_memory_high_and_low_hit_rate(self):
+    async def test_memory_high_and_low_hit_rate(self, real_api_settings):
         """内存 92% + 命中率 65% → 置信度 ≥ 0.8。"""
         mock_metrics = {
             "memory_usage_percent": 92.0,
@@ -233,7 +249,8 @@ class TestRedisExpert:
         }
         mock_client = _mock_async_client(mock_metrics)
 
-        with patch("deeprca.graph.subgraphs.redis_expert.httpx.AsyncClient", return_value=mock_client):
+        with patch("deeprca.graph.subgraphs.redis_expert.get_settings", return_value=real_api_settings), \
+             patch("deeprca.graph.subgraphs.redis_expert.httpx.AsyncClient", return_value=mock_client):
             agent = RedisExpertAgent()
             result = await agent.analyze({"service_name": "test-svc"}, {})
 
@@ -245,7 +262,7 @@ class TestRedisExpert:
         assert "hit_rate" in finding_types
 
     @pytest.mark.asyncio
-    async def test_big_key_detected(self):
+    async def test_big_key_detected(self, real_api_settings):
         """检测到大 key → 发现 big_key 异常。"""
         mock_metrics = {
             "memory_usage_percent": 50.0,
@@ -256,7 +273,8 @@ class TestRedisExpert:
         }
         mock_client = _mock_async_client(mock_metrics)
 
-        with patch("deeprca.graph.subgraphs.redis_expert.httpx.AsyncClient", return_value=mock_client):
+        with patch("deeprca.graph.subgraphs.redis_expert.get_settings", return_value=real_api_settings), \
+             patch("deeprca.graph.subgraphs.redis_expert.httpx.AsyncClient", return_value=mock_client):
             agent = RedisExpertAgent()
             result = await agent.analyze({"service_name": "test-svc"}, {})
 
@@ -264,7 +282,7 @@ class TestRedisExpert:
         assert "big_key" in finding_types
 
     @pytest.mark.asyncio
-    async def test_connection_high(self):
+    async def test_connection_high(self, real_api_settings):
         """连接数 > 80% → 发现 connection 异常。"""
         mock_metrics = {
             "memory_usage_percent": 50.0,
@@ -275,7 +293,8 @@ class TestRedisExpert:
         }
         mock_client = _mock_async_client(mock_metrics)
 
-        with patch("deeprca.graph.subgraphs.redis_expert.httpx.AsyncClient", return_value=mock_client):
+        with patch("deeprca.graph.subgraphs.redis_expert.get_settings", return_value=real_api_settings), \
+             patch("deeprca.graph.subgraphs.redis_expert.httpx.AsyncClient", return_value=mock_client):
             agent = RedisExpertAgent()
             result = await agent.analyze({"service_name": "test-svc"}, {})
 
@@ -291,7 +310,7 @@ class TestMafkaExpert:
     """PRD-03 §10: 消费者离线 + 积压增长 → 置信度 ≥ 0.6。"""
 
     @pytest.mark.asyncio
-    async def test_consumer_lag_and_rate_mismatch(self):
+    async def test_consumer_lag_and_rate_mismatch(self, real_api_settings):
         """消费 lag=50000 + 速率不匹配 → 置信度 ≥ 0.8。"""
         mock_metrics = {
             "consumer_lag": 50000,
@@ -301,7 +320,8 @@ class TestMafkaExpert:
         }
         mock_client = _mock_async_client(mock_metrics)
 
-        with patch("deeprca.graph.subgraphs.mafka_expert.httpx.AsyncClient", return_value=mock_client):
+        with patch("deeprca.graph.subgraphs.mafka_expert.get_settings", return_value=real_api_settings), \
+             patch("deeprca.graph.subgraphs.mafka_expert.httpx.AsyncClient", return_value=mock_client):
             agent = MafkaExpertAgent()
             result = await agent.analyze({"service_name": "test-svc"}, {})
 
@@ -313,7 +333,7 @@ class TestMafkaExpert:
         assert "rate_mismatch" in finding_types
 
     @pytest.mark.asyncio
-    async def test_rebalance_detected(self):
+    async def test_rebalance_detected(self, real_api_settings):
         """检测到 rebalance → 发现 rebalance 事件。"""
         mock_metrics = {
             "consumer_lag": 100,
@@ -323,7 +343,8 @@ class TestMafkaExpert:
         }
         mock_client = _mock_async_client(mock_metrics)
 
-        with patch("deeprca.graph.subgraphs.mafka_expert.httpx.AsyncClient", return_value=mock_client):
+        with patch("deeprca.graph.subgraphs.mafka_expert.get_settings", return_value=real_api_settings), \
+             patch("deeprca.graph.subgraphs.mafka_expert.httpx.AsyncClient", return_value=mock_client):
             agent = MafkaExpertAgent()
             result = await agent.analyze({"service_name": "test-svc"}, {})
 
@@ -331,7 +352,7 @@ class TestMafkaExpert:
         assert "rebalance" in finding_types
 
     @pytest.mark.asyncio
-    async def test_critical_lag(self):
+    async def test_critical_lag(self, real_api_settings):
         """lag > 100000 → critical 级别。"""
         mock_metrics = {
             "consumer_lag": 150000,
@@ -341,7 +362,8 @@ class TestMafkaExpert:
         }
         mock_client = _mock_async_client(mock_metrics)
 
-        with patch("deeprca.graph.subgraphs.mafka_expert.httpx.AsyncClient", return_value=mock_client):
+        with patch("deeprca.graph.subgraphs.mafka_expert.get_settings", return_value=real_api_settings), \
+             patch("deeprca.graph.subgraphs.mafka_expert.httpx.AsyncClient", return_value=mock_client):
             agent = MafkaExpertAgent()
             result = await agent.analyze({"service_name": "test-svc"}, {})
 
@@ -357,7 +379,7 @@ class TestRPCExpert:
     """PRD-03 §10: 失败率 10% + 熔断触发 → 置信度 ≥ 0.8。"""
 
     @pytest.mark.asyncio
-    async def test_high_failure_rate_and_rt_spike(self):
+    async def test_high_failure_rate_and_rt_spike(self, real_api_settings):
         """失败率 12% + RT 突变 4 倍 → 置信度 ≥ 0.8。"""
         mock_metrics = {
             "failure_rate_percent": 12.0,
@@ -369,7 +391,8 @@ class TestRPCExpert:
         }
         mock_client = _mock_async_client(mock_metrics)
 
-        with patch("deeprca.graph.subgraphs.rpc_expert.httpx.AsyncClient", return_value=mock_client):
+        with patch("deeprca.graph.subgraphs.rpc_expert.get_settings", return_value=real_api_settings), \
+             patch("deeprca.graph.subgraphs.rpc_expert.httpx.AsyncClient", return_value=mock_client):
             agent = RPCExpertAgent()
             result = await agent.analyze({"service_name": "test-svc"}, {})
 
@@ -381,7 +404,7 @@ class TestRPCExpert:
         assert "rt_spike" in finding_types
 
     @pytest.mark.asyncio
-    async def test_timeout_exceeded(self):
+    async def test_timeout_exceeded(self, real_api_settings):
         """超时次数 > 10 → 发现 timeout 异常。"""
         mock_metrics = {
             "failure_rate_percent": 2.0,
@@ -393,7 +416,8 @@ class TestRPCExpert:
         }
         mock_client = _mock_async_client(mock_metrics)
 
-        with patch("deeprca.graph.subgraphs.rpc_expert.httpx.AsyncClient", return_value=mock_client):
+        with patch("deeprca.graph.subgraphs.rpc_expert.get_settings", return_value=real_api_settings), \
+             patch("deeprca.graph.subgraphs.rpc_expert.httpx.AsyncClient", return_value=mock_client):
             agent = RPCExpertAgent()
             result = await agent.analyze({"service_name": "test-svc"}, {})
 
@@ -401,10 +425,10 @@ class TestRPCExpert:
         assert "timeout" in finding_types
 
     @pytest.mark.asyncio
-    async def test_call_volume_spike(self):
-        """调用量激增 > 3 倍 → 发现 call_volume_spike。"""
+    async def test_call_volume_spike(self, real_api_settings):
+        """调用量 > 基线 3 倍 → 发现 call_volume_spike 异常。"""
         mock_metrics = {
-            "failure_rate_percent": 1.0,
+            "failure_rate_percent": 2.0,
             "avg_rt_ms": 80.0,
             "baseline_rt_ms": 100.0,
             "timeout_count": 0,
@@ -413,7 +437,8 @@ class TestRPCExpert:
         }
         mock_client = _mock_async_client(mock_metrics)
 
-        with patch("deeprca.graph.subgraphs.rpc_expert.httpx.AsyncClient", return_value=mock_client):
+        with patch("deeprca.graph.subgraphs.rpc_expert.get_settings", return_value=real_api_settings), \
+             patch("deeprca.graph.subgraphs.rpc_expert.httpx.AsyncClient", return_value=mock_client):
             agent = RPCExpertAgent()
             result = await agent.analyze({"service_name": "test-svc"}, {})
 

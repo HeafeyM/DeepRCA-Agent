@@ -51,6 +51,7 @@ services:
     environment:
       - APP_ENV=production
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - APP_EXTERNAL_HOST=${APP_EXTERNAL_HOST:-localhost}
       - LLM_API_BASE=${LLM_API_BASE:-http://localhost:11434/v1}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_MODEL=${LLM_MODEL:-gpt-4o}
