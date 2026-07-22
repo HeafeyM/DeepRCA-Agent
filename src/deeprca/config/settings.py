@@ -61,11 +61,11 @@ class Settings(BaseSettings):
     # Mock Environment
     mock_env_enabled: bool = Field(default=True, description="是否启用 Mock 环境")
     mock_k8s_api: str = Field(default="http://localhost:8001", description="Mock K8s API")
-    # 以下三个配置当前在 mock_env_enabled=True 时不被使用（工具层直接返回 mock_data），
-    # 仅在对接真实监控系统时才会发起 HTTP 请求。统一指向 8001 以避免端口混淆。
-    mock_monitor_api: str = Field(default="http://localhost:8001", description="Mock 监控 API（当前未使用，mock_env_enabled 优先）")
-    mock_log_api: str = Field(default="http://localhost:8001", description="Mock 日志 API（当前未使用，mock_env_enabled 优先）")
-    mock_change_api: str = Field(default="http://localhost:8001", description="Mock 变更 API（当前未使用，mock_env_enabled 优先）")
+    # 以下三个配置在 mock_env_enabled=True 时被使用（工具层和 L2 专家通过 HTTP 调用 Mock API 获取场景感知数据），
+    # 仅在对接真实监控系统时需要改为实际监控服务地址。统一指向 8001 以避免端口混淆。
+    mock_monitor_api: str = Field(default="http://localhost:8001", description="Mock 监控 API（mock_env_enabled=True 时被工具层和 L2 专家使用）")
+    mock_log_api: str = Field(default="http://localhost:8001", description="Mock 日志 API（当前与 mock_monitor_api 统一指向 8001）")
+    mock_change_api: str = Field(default="http://localhost:8001", description="Mock 变更 API（当前与 mock_monitor_api 统一指向 8001）")
 
 
 @lru_cache

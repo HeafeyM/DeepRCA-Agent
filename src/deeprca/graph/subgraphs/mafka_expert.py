@@ -124,6 +124,17 @@ class MafkaExpertAgent(BaseExpertAgent):
         findings: list[dict] = []
         evidence: list[str] = []
 
+        # 利用 L1 维度分析的发现作为辅助信号
+        context = state.get("context", {})
+        l1_findings = context.get("l1_findings", [])
+        l1_mafka_hints: list[str] = []
+        for l1_group in l1_findings:
+            if isinstance(l1_group, list):
+                for f in l1_group:
+                    finding_str = str(f.get("desc", f.get("description", f))).lower()
+                    if any(kw in finding_str for kw in self.trigger_keywords):
+                        l1_mafka_hints.append(str(f.get("desc", f.get("description", f))))
+
         consumer_lag = metrics.get("consumer_lag", 0)
         if consumer_lag > 100000:
             findings.append({
@@ -181,6 +192,14 @@ class MafkaExpertAgent(BaseExpertAgent):
             confidence = 0.8
         else:
             confidence = 0.9
+
+        # L1 发现了 Kafka/Mafka 相关异常时提升置信度
+        if l1_mafka_hints and findings:
+            confidence = min(confidence + 0.05, 1.0)
+            evidence.append(f"L1 维度分析也发现了消息队列相关异常: {', '.join(l1_mafka_hints[:2])}")
+        elif l1_mafka_hints and not findings:
+            confidence = max(confidence, 0.5)
+            evidence.append(f"L1 维度分析提示消息队列相关异常: {', '.join(l1_mafka_hints[:2])}")
 
         return {"findings": findings, "evidence": evidence, "confidence": confidence}
 

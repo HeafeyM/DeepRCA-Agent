@@ -118,6 +118,17 @@ class DBExpertAgent(BaseExpertAgent):
         findings: list[dict] = []
         evidence: list[str] = []
 
+        # 利用 L1 维度分析的发现作为辅助信号
+        context = state.get("context", {})
+        l1_findings = context.get("l1_findings", [])
+        l1_db_hints: list[str] = []
+        for l1_group in l1_findings:
+            if isinstance(l1_group, list):
+                for f in l1_group:
+                    finding_str = str(f.get("desc", f.get("description", f))).lower()
+                    if any(kw in finding_str for kw in self.trigger_keywords):
+                        l1_db_hints.append(str(f.get("desc", f.get("description", f))))
+
         slow_query_count = metrics.get("slow_query_count", 0)
         if slow_query_count > 50:
             findings.append({
@@ -190,6 +201,15 @@ class DBExpertAgent(BaseExpertAgent):
             confidence = 0.8
         else:
             confidence = 0.9
+
+        # L1 发现了 DB 相关异常时提升置信度
+        if l1_db_hints and findings:
+            confidence = min(confidence + 0.05, 1.0)
+            evidence.append(f"L1 维度分析也发现了 DB 相关异常: {', '.join(l1_db_hints[:2])}")
+        elif l1_db_hints and not findings:
+            # L1 发现了 DB 异常线索但 DB 指标未超阈值，提升基础置信度
+            confidence = max(confidence, 0.5)
+            evidence.append(f"L1 维度分析提示 DB 相关异常: {', '.join(l1_db_hints[:2])}")
 
         return {"findings": findings, "evidence": evidence, "confidence": confidence}
 

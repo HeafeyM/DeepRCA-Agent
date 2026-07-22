@@ -146,6 +146,17 @@ class RPCExpertAgent(BaseExpertAgent):
         findings: list[dict] = []
         evidence: list[str] = []
 
+        # 利用 L1 维度分析的发现作为辅助信号
+        context = state.get("context", {})
+        l1_findings = context.get("l1_findings", [])
+        l1_rpc_hints: list[str] = []
+        for l1_group in l1_findings:
+            if isinstance(l1_group, list):
+                for f in l1_group:
+                    finding_str = str(f.get("desc", f.get("description", f))).lower()
+                    if any(kw in finding_str for kw in self.trigger_keywords):
+                        l1_rpc_hints.append(str(f.get("desc", f.get("description", f))))
+
         failure_rate = metrics.get("failure_rate_percent", 0.0)
         if failure_rate > 10:
             findings.append({
@@ -233,6 +244,14 @@ class RPCExpertAgent(BaseExpertAgent):
             confidence = 0.8
         else:
             confidence = 0.9
+
+        # L1 发现了 RPC 相关异常时提升置信度
+        if l1_rpc_hints and findings:
+            confidence = min(confidence + 0.05, 1.0)
+            evidence.append(f"L1 维度分析也发现了 RPC 调用相关异常: {', '.join(l1_rpc_hints[:2])}")
+        elif l1_rpc_hints and not findings:
+            confidence = max(confidence, 0.5)
+            evidence.append(f"L1 维度分析提示 RPC 调用相关异常: {', '.join(l1_rpc_hints[:2])}")
 
         return {"findings": findings, "evidence": evidence, "confidence": confidence}
 
