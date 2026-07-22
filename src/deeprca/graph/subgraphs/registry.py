@@ -77,7 +77,7 @@ async def dispatch_to_experts(
     task_plan: list[dict],
     alert: dict,
     context: dict | None = None,
-    timeout: int = 30,
+    timeout: int | None = None,
 ) -> list[SubAgentResult]:
     """并发调度所有领域专家子 Agent。
 
@@ -88,13 +88,16 @@ async def dispatch_to_experts(
         task_plan: L1 规划的任务列表，每项含 dimension 字段
         alert: 告警信息字典
         context: L1 分析上下文（含已发现的异常线索），默认空字典
-        timeout: 单个专家执行超时（秒），默认 30
+        timeout: 单个专家执行超时（秒），默认使用 settings.tool_call_timeout
 
     Returns:
         所有专家的 SubAgentResult 列表
     """
     if context is None:
         context = {}
+    if timeout is None:
+        from deeprca.config import get_settings
+        timeout = get_settings().tool_call_timeout
 
     # 收集需要触发的领域专家
     domains_to_run: list[str] = []

@@ -28,7 +28,7 @@ __all__ = ["create_app", "app"]
 try:
     _VERSION = pkg_version("deeprca-agent")
 except Exception:
-    _VERSION = "0.1.0"  # fallback（开发模式 pip install -e . 时可能未安装）
+    _VERSION = "0.3.0"  # fallback（与 pyproject.toml 保持同步）
 
 
 def create_app() -> FastAPI:

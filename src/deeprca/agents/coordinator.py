@@ -392,7 +392,7 @@ async def dispatcher_node(state: DeepRCAState) -> dict:
     # 将 L1 发现作为上下文传递给 L2 专家
     l2_context = {"l1_findings": l1_findings, "task_plan": task_plan}
 
-    l2_results = await dispatch_to_experts(task_plan, alert, l2_context)
+    l2_results = await dispatch_to_experts(task_plan, alert, l2_context, timeout=settings.tool_call_timeout)
     all_results.extend(r.model_dump() for r in l2_results)
 
     # PRD-02 §2.3: 全部维度失败时触发降级模式
