@@ -498,5 +498,5 @@ async def _push_feedback_to_kafka(feedback: dict, settings) -> None:
             await producer.send_and_wait(settings.kafka_feedback_topic, feedback)
         finally:
             await producer.stop()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Kafka 反馈推送失败 (trace_id=%s): %s", feedback.get("trace_id", ""), exc)

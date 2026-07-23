@@ -15,8 +15,6 @@ import os
 import json
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
-
 from deeprca.graph import build_coordinator_graph
 
 

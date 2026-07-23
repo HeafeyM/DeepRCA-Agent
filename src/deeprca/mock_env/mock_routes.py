@@ -101,7 +101,8 @@ def create_mock_router() -> APIRouter:
                 trace_id = submit_result["trace_id"]
 
                 # 4. 轮询等待分析完成
-                max_wait = settings.analysis_timeout
+                # 轮询超时设为 analysis_timeout 的 1.5 倍，留出缓冲避免慢速环境 false negative
+                max_wait = int(settings.analysis_timeout * 1.5)
                 waited = 0
                 poll_interval = 2
                 final_status = "running"
@@ -437,4 +438,6 @@ def _semantic_match(actual: str, expected: str) -> bool:
     if not expected_words:
         return False
     overlap = len(actual_words & expected_words) / len(expected_words)
-    return overlap >= 0.5
+    # 短词场景（expected_words <= 3）要求更高重叠率，避免 1 词匹配即达标的假阳性
+    threshold = 0.6 if len(expected_words) <= 3 else 0.5
+    return overlap >= threshold

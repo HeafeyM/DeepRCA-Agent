@@ -21,7 +21,6 @@ COPY pyproject.toml .
 COPY src/deeprca/__init__.py ./src/deeprca/__init__.py
 COPY src/deeprca/config/ ./src/deeprca/config/
 COPY src/deeprca/models/ ./src/deeprca/models/
-COPY src/deeprca/tools/ ./src/deeprca/tools/
 COPY src/deeprca/mock_env/ ./src/deeprca/mock_env/
 COPY mock_main.py ./mock_main.py
 RUN pip install --no-cache-dir -e .

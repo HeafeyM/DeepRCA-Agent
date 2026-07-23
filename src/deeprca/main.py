@@ -30,6 +30,24 @@ try:
 except Exception:
     _VERSION = "0.3.0"  # fallback（与 pyproject.toml 保持同步）
 
+# 模块级 Redis 连接（供 /health 复用，避免每次请求新建连接）
+_health_redis = None
+
+
+async def _get_health_redis():
+    """获取或创建 /health 专用的 Redis 连接（模块级单例）。"""
+    global _health_redis
+    if _health_redis is None:
+        import redis.asyncio as aioredis
+        settings = get_settings()
+        _health_redis = aioredis.Redis(
+            host=settings.redis_host,
+            port=settings.redis_port,
+            db=settings.redis_db,
+            password=settings.redis_password or None,
+        )
+    return _health_redis
+
 
 def create_app() -> FastAPI:
     """创建 FastAPI 应用实例。"""
@@ -46,20 +64,16 @@ def create_app() -> FastAPI:
     async def health_check():
         checks = {}
 
-        # Redis 连通性（使用异步客户端，避免阻塞事件循环）
+        # Redis 连通性（复用模块级连接，避免每次请求新建）
         try:
-            import redis.asyncio as aioredis
-            r = aioredis.Redis(
-                host=settings.redis_host,
-                port=settings.redis_port,
-                db=settings.redis_db,
-                password=settings.redis_password or None,
-            )
+            r = await _get_health_redis()
             await r.ping()
-            await r.aclose()
             checks["redis"] = "healthy"
         except Exception:
             checks["redis"] = "unhealthy"
+            # 连接可能已失效，重置以便下次重建
+            global _health_redis
+            _health_redis = None
 
         # Mock 环境连通性
         try:

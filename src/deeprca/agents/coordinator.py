@@ -191,10 +191,13 @@ def intake_node(state: DeepRCAState) -> dict:
     # 优先使用 routes.py 已生成的 trace_id，仅在不存在时才生成新的
     trace_id = state.get("trace_id", "") or f"trace-{uuid.uuid4().hex[:12]}"
 
+    # 优先使用 routes.py 已设置的 start_time，仅在不存在时才生成新的
+    start_time = state.get("start_time", "") or _now_iso()
+
     return {
         "alert": parsed.model_dump(),
         "trace_id": trace_id,
-        "start_time": _now_iso(),
+        "start_time": start_time,
         "status": "running",
         "related_services": related_services,
         "messages": [f"[intake] 解析告警: service={parsed.service_name}, severity={parsed.severity}"],
@@ -484,11 +487,11 @@ async def root_cause_node(state: DeepRCAState) -> dict:
     超时降级路径下（collector 被跳过），从 sub_agent_results 构建简易证据池。
     """
     alert = state.get("alert", {})
-    evidence_summary = state.get("collected_evidence", {})
+    evidence_summary = state.get("collected_evidence") or {}
     sub_agent_results = state.get("sub_agent_results", [])
     trace_id = state.get("trace_id", "")
 
-    # 超时降级路径：collector 被跳过，collected_evidence 为空
+    # 超时降级路径：collector 被跳过，collected_evidence 为空或 None
     # 从 sub_agent_results 构建简易证据池，避免 L3 Agent 在空证据下分析
     if not evidence_summary and sub_agent_results:
         evidence_summary = _build_emergency_evidence(sub_agent_results)
@@ -612,7 +615,7 @@ def reporter_node(state: DeepRCAState) -> dict:
     """
     alert = state.get("alert", {})
     root_cause = state.get("root_cause", {})
-    evidence_summary = state.get("collected_evidence", {})
+    evidence_summary = state.get("collected_evidence") or {}
     sub_results = state.get("sub_agent_results", [])
     trace_id = state.get("trace_id", "")
     start_time = state.get("start_time", "")
