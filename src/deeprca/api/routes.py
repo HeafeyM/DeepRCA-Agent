@@ -162,6 +162,10 @@ def create_router() -> APIRouter:
     async def submit_analysis(alert: dict):
         """接收告警事件，启动 LangGraph 分析流程。
 
+        注意: 参数类型为 dict 而非 Pydantic 模型，这是有意设计——
+        为了自定义校验失败的错误响应格式（返回 {"message": "...", "detail": [...]}
+        而非 FastAPI 默认的 422 格式）。请勿改为 Pydantic 模型参数类型注解。
+
         请求体格式:
         {
             "alert_id": "alt-001",
@@ -451,11 +455,27 @@ def create_router() -> APIRouter:
                 return
 
             # 轮询状态作为心跳兜底（broadcast 提供即时推送）
+            sent_completed = False
             while True:
                 record = await analysis_store.get(trace_id)
                 if record is None:
                     break
                 status = record.get("status", "running")
+
+                if status in ("completed", "failed"):
+                    # 仅在尚未通过 broadcast 发送过 completed 时才发送
+                    # 避免与 _run_analysis 的 broadcast 重复
+                    if not sent_completed:
+                        report_raw = record.get("result")
+                        report = json.loads(report_raw) if isinstance(report_raw, str) else report_raw
+                        await ws.send_json({
+                            "trace_id": trace_id,
+                            "event": "completed" if status == "completed" else "error",
+                            "report": report,
+                            "root_cause": record.get("root_cause"),
+                        })
+                        sent_completed = True
+                    break
 
                 await ws.send_json({
                     "trace_id": trace_id,
@@ -463,17 +483,6 @@ def create_router() -> APIRouter:
                     "status": status,
                     "timestamp": _now_iso(),
                 })
-
-                if status in ("completed", "failed"):
-                    report_raw = record.get("result")
-                    report = json.loads(report_raw) if isinstance(report_raw, str) else report_raw
-                    await ws.send_json({
-                        "trace_id": trace_id,
-                        "event": "completed" if status == "completed" else "error",
-                        "report": report,
-                        "root_cause": record.get("root_cause"),
-                    })
-                    break
 
                 await asyncio.sleep(1.0)
         except WebSocketDisconnect:

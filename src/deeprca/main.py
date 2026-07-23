@@ -65,15 +65,20 @@ def create_app() -> FastAPI:
         checks = {}
 
         # Redis 连通性（复用模块级连接，避免每次请求新建）
-        try:
-            r = await _get_health_redis()
-            await r.ping()
-            checks["redis"] = "healthy"
-        except Exception:
-            checks["redis"] = "unhealthy"
-            # 连接可能已失效，重置以便下次重建
-            global _health_redis
-            _health_redis = None
+        # 增加一次重试，避免短暂网络抖动导致误报不健康
+        for attempt in range(2):
+            try:
+                r = await _get_health_redis()
+                await r.ping()
+                checks["redis"] = "healthy"
+                break
+            except Exception:
+                if attempt == 0:
+                    # 连接可能已失效，重置以便下次重建后重试
+                    global _health_redis
+                    _health_redis = None
+                    continue
+                checks["redis"] = "unhealthy"
 
         # Mock 环境连通性
         try:
