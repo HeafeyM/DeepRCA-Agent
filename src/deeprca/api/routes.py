@@ -26,6 +26,7 @@ from deeprca.api.websocket import ConnectionManager
 from deeprca.config import get_settings
 from deeprca.graph import build_coordinator_graph
 from deeprca.models.alert import AlertEvent
+from deeprca.models.feedback import FeedbackRequest
 
 __all__ = ["create_router", "analysis_store"]
 
@@ -379,25 +380,20 @@ def create_router() -> APIRouter:
                 content={"message": "trace_id is required (via body or query string)"},
             )
         feedback["trace_id"] = resolved_trace_id
-        satisfaction = feedback.get("satisfaction")
-        if satisfaction is None:
-            return JSONResponse(
-                status_code=400,
-                content={"message": "satisfaction is required (1-5)"},
-            )
+
+        # 使用 FeedbackRequest Pydantic 模型做结构化校验
         try:
-            satisfaction_val = int(satisfaction)
-            if not 1 <= satisfaction_val <= 5:
-                raise ValueError()
-            feedback["satisfaction"] = satisfaction_val
-        except (ValueError, TypeError):
+            validated = FeedbackRequest(**feedback)
+        except ValidationError as e:
             return JSONResponse(
                 status_code=400,
-                content={"message": "satisfaction must be an integer between 1 and 5"},
+                content={"message": "反馈格式校验失败", "detail": e.errors()},
             )
+
         # 如果 URL 中携带 token，回填到反馈记录
-        if token and not feedback.get("feedback_token"):
-            feedback["feedback_token"] = token
+        validated_feedback = validated.model_dump()
+        if token and not validated_feedback.get("feedback_token"):
+            validated_feedback["feedback_token"] = token
         record = await analysis_store.get(resolved_trace_id)
         if record is None:
             return JSONResponse(
@@ -406,17 +402,17 @@ def create_router() -> APIRouter:
             )
 
         # 存储反馈
-        await analysis_store.update(resolved_trace_id, feedback=feedback)
+        await analysis_store.update(resolved_trace_id, feedback=validated_feedback)
 
         # 尝试推送到 Kafka（非阻塞，失败不影响响应）
         settings = get_settings()
         if not settings.mock_env_enabled:
-            asyncio.create_task(_push_feedback_to_kafka(feedback, settings))
+            asyncio.create_task(_push_feedback_to_kafka(validated_feedback, settings))
         else:
             # Mock 模式下记录日志，确保反馈数据可追溯
             logger.info(
                 "Feedback received (mock mode): trace_id=%s satisfaction=%s",
-                resolved_trace_id, feedback.get("satisfaction"),
+                resolved_trace_id, validated_feedback.get("satisfaction"),
             )
 
         return {"status": "accepted", "message": "Feedback received"}

@@ -577,11 +577,11 @@ brew install websocat
 # 连接 WebSocket（替换 trace_id）
 TRACE_ID="trace-a1b2c3d4e5f6"
 websocat "ws://localhost:8000/api/v1/analyze/$TRACE_ID/stream"
+```
 
 > **注意**: 上述 URL 中 `localhost` 依赖 `APP_EXTERNAL_HOST` 环境变量配置。
 > 默认值 `localhost` 适用于宿主机本地访问。如果从其他机器访问 Docker 宿主机，
 > 需将 `APP_EXTERNAL_HOST` 设置为宿主机的实际 IP 或域名。
-```
 
 ### 7.2 使用 Python 脚本验证
 
