@@ -37,6 +37,8 @@
 > - 第 7.2 节的 `ws_test.py` 脚本用于验证 WebSocket（需 `pip install websockets`）
 >
 > 所有 JSON 美化命令都通过 Docker 容器内 Python 执行，不依赖宿主机 Python。
+>
+> **本地开发（可选）**: 如需在宿主机直接运行 `pip install -e .` 安装项目，Python 版本必须 ≥ 3.11（与 `pyproject.toml` 中 `requires-python = ">=3.11"` 一致）。Docker 内使用 `python:3.11-slim` 不受此限制。
 
 ### 1.2 克隆项目
 
@@ -500,8 +502,7 @@ curl http://localhost:8000/api/v1/analyze/$TRACE_ID/result | docker exec -i deep
     "best_candidate": {
       "root_cause": "服务内存溢出导致 Pod 被 Kill 并重启",
       "confidence": 0.9,
-      "category": "resource",
-      "evidence": [...]
+      "evidence_chain": [...]
     },
 "candidates": [...]
   }
