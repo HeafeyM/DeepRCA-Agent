@@ -13,14 +13,14 @@ WORKDIR /app
 COPY requirements-mock.txt .
 RUN pip install --no-cache-dir -r requirements-mock.txt
 
-# 代码层（mock_env 模块 + 模型链路依赖）
+# 代码层（mock_env 模块依赖）
 # 注: mock_routes.py 的 run_scenario_e2e 通过 HTTP API 调用 Agent，
 #     不直接导入 deeprca.api/agents/graph/detection。
-#     mock_env 仅依赖 models/（AlertEvent 等）和 config/。
+#     mock_env 仅依赖 config/（get_settings）。models/ 等目录由
+#     pip install -e . 时 pyproject.toml 的 setuptools 自动解析。
 COPY pyproject.toml .
 COPY src/deeprca/__init__.py ./src/deeprca/__init__.py
 COPY src/deeprca/config/ ./src/deeprca/config/
-COPY src/deeprca/models/ ./src/deeprca/models/
 COPY src/deeprca/mock_env/ ./src/deeprca/mock_env/
 COPY mock_main.py ./mock_main.py
 RUN pip install --no-cache-dir -e .

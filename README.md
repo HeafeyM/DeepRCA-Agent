@@ -147,59 +147,63 @@ DeepRCA-Agent/
 │   ├── 03_domain_expert_prd.md
 │   ├── 04_root_cause_prd.md
 │   └── 05_mock_env_prd.md
-├── deeprca/                        # 核心代码（待实现）
+├── src/deeprca/                    # 核心代码
 │   ├── agents/
-│   │   ├── general_analyzer.py     # L1 通用分析 Agent
-│   │   ├── domain_experts/         # L2 领域专家 Agent
-│   │   │   ├── base.py
-│   │   │   ├── db_expert.py
-│   │   │   ├── redis_expert.py
-│   │   │   ├── mafka_expert.py
-│   │   │   ├── rpc_expert.py
-│   │   │   ├── change_agent.py
-│   │   │   └── errorlog_agent.py
+│   │   ├── coordinator.py          # L1 Coordinator Agent (6 节点工作流)
+│   │   ├── dimensions.py           # L1 六维度分析函数
+│   │   ├── db_expert.py            # L2 DB 领域专家
+│   │   ├── redis_expert.py         # L2 Redis 领域专家
+│   │   ├── mafka_expert.py         # L2 Kafka 领域专家
+│   │   ├── rpc_expert.py           # L2 RPC 领域专家
+│   │   ├── change_expert.py        # L2 变更分析专家
+│   │   ├── errorlog_expert.py      # L2 错误日志分析专家
 │   │   └── root_cause.py           # L3 根因定位 Agent
-│   ├── algorithms/                 # 核心算法
-│   │   ├── anomaly_detector.py     # 四分位+波动检测
-│   │   ├── comparator.py           # 多维对比
-│   │   ├── metric_filter.py        # 指标筛选+噪声过滤
-│   │   └── rule_engine.py          # 专家规则引擎
-│   ├── models/                     # 数据模型
-│   │   ├── state.py                # DeepRCAState
-│   │   ├── evidence.py             # EvidencePool
-│   │   └── result.py               # 分析结果
-│   ├── tools/                      # LangChain 工具
-│   ├── api/                        # FastAPI 路由
-│   └── main.py                     # 服务入口
-├── mock_env/                       # 模拟环境（待实现）
-│   ├── k8s_simulator.py
-│   ├── mysql_simulator.py
-│   ├── redis_simulator.py
-│   ├── kafka_simulator.py
-│   ├── microservice_simulator.py
-│   ├── alert_simulator.py
-│   └── main.py
+│   ├── detection/                  # 核心算法（确定性统计）
+│   │   ├── anomaly_detector.py     # 四分位 IQR 异常检测
+│   │   ├── volatility.py           # 滚动标准差波动性检测
+│   │   ├── comparator.py           # 多维对比 (WoW/DoD)
+│   │   ├── metric_filter.py        # 指标筛选 + 噪声过滤
+│   │   └── rule_engine.py          # 专家规则引擎 (R001-R008)
+│   ├── graph/                      # LangGraph 图定义
+│   │   ├── state.py                # DeepRCAState (Annotated reducer)
+│   │   ├── builder.py              # build_coordinator_graph()
+│   │   └── subgraphs.py            # L2 领域专家子图调度
+│   ├── models/                     # Pydantic 数据模型
+│   │   ├── alert.py                # AlertEvent, ParsedAlert
+│   │   ├── evidence.py             # Evidence, EvidencePool, SubAgentResult
+│   │   ├── feedback.py             # FeedbackRequest
+│   │   ├── report.py               # AnalysisReport
+│   │   └── result.py               # RootCauseResult, RootCauseCandidate
+│   ├── tools/                      # LangChain @tool 工具集
+│   │   ├── metrics.py              # query_metrics
+│   │   ├── logs.py                 # query_error_logs
+│   │   ├── changes.py              # query_recent_changes
+│   │   ├── traces.py               # query_trace
+│   │   ├── topology.py             # query_topology
+│   │   └── alerts.py               # query_related_alerts
+│   ├── mock_env/                   # Mock 模拟环境
+│   │   ├── k8s_simulator.py        # K8s 集群模拟器
+│   │   ├── mysql_simulator.py      # MySQL/DB 模拟器
+│   │   ├── redis_simulator.py      # Redis 模拟器
+│   │   ├── kafka_simulator.py      # Kafka 模拟器
+│   │   ├── service_simulator.py    # 微服务调用链模拟器
+│   │   ├── alert_simulator.py      # 8 个预设场景 + 故障注入
+│   │   └── mock_routes.py          # Mock API 路由 (38+ 端点)
+│   ├── api/
+│   │   ├── routes.py               # REST API (5 端点) + WebSocket
+│   │   └── websocket.py            # WebSocket ConnectionManager
+│   ├── config.py                   # pydantic-settings 配置
+│   └── main.py                     # FastAPI 服务入口
 ├── tests/                          # 测试
-│   ├── smoke/                      # 冒烟测试（Docker 容器内执行）
-│   │   ├── conftest.py
-│   │   ├── entrypoint.sh
-│   │   ├── test_health.py
-│   │   ├── test_e2e_scenarios.py
-│   │   └── test_{module}.py
-│   ├── unit/
-│   └── integration/
-├── deeprca/
-│   └── Dockerfile                  # Agent 服务镜像
-├── mock_env/
-│   └── Dockerfile                  # 模拟环境镜像
-├── tests/
-│   └── Dockerfile                  # 冒烟测试镜像
-├── docker-compose.yml              # Compose 编排（Profile: full/agent/mock/smoke）
+│   ├── unit/                       # 纯单元测试 (167 用例)
+│   └── smoke/                      # 冒烟测试 (Docker 容器内执行)
+├── Dockerfile                      # Agent 服务镜像
+├── mock_env.Dockerfile             # Mock 环境镜像
+├── docker-compose.yml              # Profile: full/agent/mock/smoke
+├── pyproject.toml
 ├── requirements.txt
 ├── requirements-mock.txt
-├── requirements-dev.txt
 ├── .env.example
-├── .gitignore
 └── README.md
 ```
 

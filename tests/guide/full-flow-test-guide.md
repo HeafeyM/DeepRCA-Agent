@@ -656,7 +656,7 @@ docker exec deeprca-agent python -m pytest tests/smoke/test_smoke.py -v --tb=sho
 | 测试目录 | 测试数 | 依赖 | 说明 |
 |----------|--------|------|------|
 | `tests/unit/` | 167 | 无外部依赖 | 纯单元测试，内存 Mock；统计口径为 `def test_*` 函数数量 |
-| `tests/smoke/test_smoke.py` | 12 | 无外部依赖 | 端到端测试，内存 Mock；统计口径为 `def test_*` 函数数量 |
+| `tests/smoke/test_smoke.py` | 17 | 无外部依赖 | 端到端验证，内存 Mock 驱动 LangGraph 图（不依赖外部 HTTP 服务，与 test_e2e_scenarios.py 区分） |
 | `tests/smoke/test_agent_flow.py` | 5 | Agent + Mock 运行 | HTTP API 集成测试 |
 | `tests/smoke/test_health.py` | 4 | Agent + Mock 运行 | 健康检查集成测试 |
 | `tests/smoke/test_mock_sims.py` | 20 | Mock 运行 | Mock API 集成测试 |
